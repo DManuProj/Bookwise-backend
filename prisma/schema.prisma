@@ -1,0 +1,275 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  MEMBER
+  ADMIN
+  OWNER
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+  NO_SHOW
+  RESCHEDULED
+}
+
+enum BookingSource {
+  MANUAL_CUSTOMER
+  VOICE_AI
+  MANUAL_DASHBOARD
+}
+
+enum PlanTier {
+  STARTER
+  PRO
+  BUSINESS
+}
+
+enum InviteStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  RESENT
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  REMOVED
+}
+
+enum DayOfWeek {
+  MON
+  TUE
+  WED
+  THU
+  FRI
+  SAT
+  SUN
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+// organization model 
+model Organisation {
+  id              String    @id @default(cuid())
+  name            String
+  slug            String    @unique
+  logo            String?
+  description     String?
+  address         String?
+  timezone        String    @default("UTC")
+  phone           String?
+  bufferMins      Int       @default(0)
+  minLeadTimeMins Int       @default(60)
+  maxPerSlot      Int       @default(1)
+  cancelPolicy    String?
+  voiceAiEnabled  Boolean   @default(false)
+  planTier        PlanTier  @default(STARTER)
+  isDeleted       Boolean   @default(false)
+  deletedAt       DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  users         User[]
+  services      Service[]
+  customers     Customer[]
+  bookings      Booking[]
+  auditLogs     AuditLog[]
+  notifications Notification[]
+  invitations   StaffInvitation[]
+  workingHours  WorkingHour[]
+  leaveRequests StaffLeave[]
+}
+
+model User {
+  id                 String     @id @default(cuid())
+  clerkId            String     @unique
+  email              String     @unique
+  firstName          String
+  lastName           String
+  phone              String?
+  photoUrl           String?
+  role               Role       @default(MEMBER)
+  status             UserStatus @default(INACTIVE)
+  profileComplete    Boolean    @default(false)
+  onboardingComplete Boolean    @default(false)
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  bookings       Booking[]
+  auditLogs      AuditLog[]
+  notifications  Notification[]
+  invitations    StaffInvitation?
+  workingHours   WorkingHour[]
+  leaveRequests  StaffLeave[]     @relation("LeaveRequests")
+  approvedLeaves StaffLeave[]     @relation("ApprovedLeaves")
+
+  orgId String?
+  org   Organisation? @relation(fields: [orgId], references: [id])
+}
+
+model Service {
+  id           String   @id @default(cuid())
+  name         String
+  description  String?
+  durationMins Int
+  price        Float
+  buffer       Int      @default(0)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  bookings Booking[]
+
+  orgId String
+  org   Organisation @relation(fields: [orgId], references: [id])
+}
+
+model Customer {
+  id        String   @id @default(cuid())
+  name      String
+  email     String
+  phone     String
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bookings Booking[]
+
+  orgId String
+  org   Organisation @relation(fields: [orgId], references: [id])
+
+  // same email allowed across different orgs
+  // but only once per org
+  @@unique([email, orgId])
+}
+
+model Booking {
+  id        String        @id @default(cuid())
+  startAt   DateTime
+  endAt     DateTime
+  status    BookingStatus @default(PENDING)
+  source    BookingSource
+  note      String?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  orgId String
+  org   Organisation @relation(fields: [orgId], references: [id])
+
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id])
+
+  serviceId String
+  service   Service @relation(fields: [serviceId], references: [id])
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  action     String
+  entityType String
+  entityId   String
+  metadata   String?
+  createdAt  DateTime @default(now())
+
+  orgId String
+  org   Organisation @relation(fields: [orgId], references: [id])
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id])
+}
+
+model Notification {
+  id         String   @id @default(cuid())
+  title      String
+  message    String
+  isRead     Boolean  @default(false)
+  type       String
+  entityType String?
+  entityId   String?
+  createdAt  DateTime @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  orgId String
+  org   Organisation @relation(fields: [orgId], references: [id])
+}
+
+model StaffInvitation {
+  id        String       @id @default(cuid())
+  token     String       @unique
+  email     String
+  name      String
+  role      Role         @default(MEMBER)
+  status    InviteStatus @default(PENDING)
+  expiresAt DateTime
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  userId String? @unique
+  user   User?   @relation(fields: [userId], references: [id])
+
+  orgId String
+  org   Organisation @relation(fields: [orgId], references: [id])
+}
+
+model WorkingHour {
+  id        String    @id @default(cuid())
+  day       DayOfWeek
+  isOpen    Boolean   @default(true)
+  openTime  String
+  closeTime String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  orgId String
+  org   Organisation @relation(fields: [orgId], references: [id])
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id])
+
+  @@unique([orgId, userId, day])
+}
+
+model StaffLeave {
+  id        String      @id @default(cuid())
+  startDate DateTime
+  endDate   DateTime
+  status    LeaveStatus @default(PENDING)
+  reason    String?
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  userId String
+  user   User   @relation("LeaveRequests", fields: [userId], references: [id])
+
+  approverId String?
+  approver   User?   @relation("ApprovedLeaves", fields: [approverId], references: [id])
+
+  orgId String
+  org   Organisation @relation(fields: [orgId], references: [id])
+}
