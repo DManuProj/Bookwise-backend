@@ -18,6 +18,7 @@ export class OrganisationService {
   private readonly logger = new Logger(OrganisationService.name);
 
   constructor(private readonly prisma: PrismaService) {}
+
   // GET — fetch the user's organisation
   async getOrganisation(user: AuthenticatedUser) {
     const org = await this.prisma.db.organisation.findUnique({

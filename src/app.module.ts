@@ -8,6 +8,15 @@ import { AuthModule } from './auth/auth.module.js';
 import { OnboardingModule } from './onboarding/onboarding.module.js';
 import { OrganisationModule } from './organisation/organisation.module.js';
 import { ServicesModule } from './services/services.module.js';
+import { StaffModule } from './staff/staff.module.js';
+import { InvitationModule } from './invitations/invitations.module.js';
+import { MeModule } from './me/me.module.js';
+import { BookingModule } from './bookings/booking.module.js';
+import { CustomerModule } from './customers/customer.module.js';
+import { PublicBookingModule } from './public-booking/public-booking.module.js';
+import { EmailModule } from './email/email.module.js';
+import { LeaveModule } from './leave/leave.module.js';
+import { VapiModule } from './AIBooking/vapi.module.js';
 
 @Module({
   imports: [
@@ -20,6 +29,15 @@ import { ServicesModule } from './services/services.module.js';
     OnboardingModule,
     OrganisationModule,
     ServicesModule,
+    StaffModule,
+    InvitationModule,
+    MeModule,
+    BookingModule,
+    CustomerModule,
+    PublicBookingModule,
+    EmailModule,
+    LeaveModule,
+    VapiModule,
   ],
   controllers: [AppController],
   providers: [AppService],

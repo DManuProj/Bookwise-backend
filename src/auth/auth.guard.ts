@@ -45,7 +45,6 @@ export class ClerkAuthGurad implements CanActivate {
       const clerkId = payload.sub;
 
       // ── Step 4: Find the user in OUR database ────────
-
       const user = await this.prisma.db.user.findUnique({
         where: { clerkId },
         include: { org: true }, // also fetch their organisation

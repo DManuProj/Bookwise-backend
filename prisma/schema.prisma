@@ -165,14 +165,16 @@ model Customer {
 }
 
 model Booking {
-  id        String        @id @default(cuid())
-  startAt   DateTime
-  endAt     DateTime
-  status    BookingStatus @default(PENDING)
-  source    BookingSource
-  note      String?
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
+  id              String        @id @default(cuid())
+  startAt         DateTime
+  endAt           DateTime
+  status          BookingStatus @default(PENDING)
+  source          BookingSource
+  note            String?
+  voiceTranscript String?
+  voiceDuration   Int?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 
   orgId String
   org   Organisation @relation(fields: [orgId], references: [id])

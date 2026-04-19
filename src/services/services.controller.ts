@@ -41,7 +41,7 @@ export class ServicesController {
     return await this.servicesService.createService(user, data);
   }
 
-  //PUT /api/services
+  //PUT /api/services/:id
   @Put(':id')
   async updateService(
     @CurrentUser() user: AuthenticatedUser,
