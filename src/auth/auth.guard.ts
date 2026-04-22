@@ -6,8 +6,8 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { PrismaService } from '../generated/prisma/prisma.service.js';
 import { verifyToken } from '@clerk/backend';
+import { PrismaService } from '../prisma/prisma.service.js';
 
 @Injectable()
 export class ClerkAuthGurad implements CanActivate {
