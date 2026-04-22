@@ -5,13 +5,13 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { PrismaService } from '../generated/prisma/prisma.service.js';
 import { AuthenticatedUser } from '../common/types/index.js';
 import {
   UpdateOrganisationDto,
   UpdateWorkingHoursDto,
 } from './organisation.dto.js';
 import { WorkingHourDto } from '../onboarding/onboarding.dto.js';
+import { PrismaService } from '../prisma/prisma.service.js';
 
 @Injectable()
 export class OrganisationService {

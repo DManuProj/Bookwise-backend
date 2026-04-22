@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
-import { PrismaService } from '../generated/prisma/prisma.service.js';
 import { OnboardingDto } from './onboarding.dto.js';
 import { AuthenticatedUser } from '../common/types/index.js';
+import { PrismaService } from '../prisma/prisma.service.js';
 
 @Injectable()
 export class OnboardingService {

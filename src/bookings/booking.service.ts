@@ -5,12 +5,12 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { PrismaService } from '../generated/prisma/prisma.service.js';
 import { AuthenticatedUser } from '../common/types/index.js';
 import { BookingSource, BookingStatus } from '../generated/prisma/enums.js';
 import { CreateBookingDto, UpdateBookingDto } from './booking.dto.js';
 import { EmailService } from '../email/email.service.js';
 import { NotificationService } from '../notifications/notifications.service.js';
+import { PrismaService } from '../prisma/prisma.service.js';
 
 @Injectable()
 export class BookingService {

@@ -5,9 +5,9 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { PrismaService } from '../generated/prisma/prisma.service.js';
 import { AcceptInvitationDto } from './invitations.dto.js';
 import { NotificationService } from '../notifications/notifications.service.js';
+import { PrismaService } from '../prisma/prisma.service.js';
 
 @Injectable()
 export class InvitationsService {

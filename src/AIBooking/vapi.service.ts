@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { PrismaService } from '../generated/prisma/prisma.service.js';
 import { EmailService } from '../email/email.service.js';
 import { NotificationService } from '../notifications/notifications.service.js';
+import { PrismaService } from '../prisma/prisma.service.js';
 
 @Injectable()
 export class VapiService {

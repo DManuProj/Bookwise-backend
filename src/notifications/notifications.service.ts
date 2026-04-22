@@ -1,8 +1,8 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ServicesService } from '../services/services.service.js';
 import { AuthenticatedUser } from '../common/types/index.js';
-import { PrismaService } from '../generated/prisma/prisma.service.js';
 import { Role } from '../generated/prisma/enums.js';
+import { PrismaService } from '../prisma/prisma.service.js';
 
 @Injectable()
 export class NotificationService {

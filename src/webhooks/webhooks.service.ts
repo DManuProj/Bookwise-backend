@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Webhook } from 'svix';
 import { ConfigService } from '@nestjs/config';
-import { PrismaService } from '../generated/prisma/prisma.service.js';
+import { PrismaService } from '../prisma/prisma.service.js';
 
 @Injectable()
 export class WebhooksService {
