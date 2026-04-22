@@ -10,7 +10,8 @@ export class EmailService {
 
   constructor(private readonly config: ConfigService) {
     this.resend = new Resend(this.config.get<string>('RESEND_API_KEY'));
-    this.appUrl = this.config.get<string>('APP_URL') || 'http://localhost:3000';
+    this.appUrl =
+      this.config.get<string>('FRONTEND_URL') || 'http://localhost:3000';
   }
 
   // ── Shared email wrapper ───────────────────────────
