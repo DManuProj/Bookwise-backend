@@ -7,12 +7,16 @@ import {
 import { PrismaService } from '../generated/prisma/prisma.service.js';
 import { AuthenticatedUser } from '../common/types/index.js';
 import { CreateServiceDto, UpdateServiceDto } from './services.dto.js';
+import { NotificationService } from '../notifications/notifications.service.js';
 
 @Injectable()
 export class ServicesService {
   private readonly logger = new Logger(ServicesService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationService: NotificationService,
+  ) {}
 
   // GET — fetch the organisation's services
   async getAllServices(user: AuthenticatedUser) {
@@ -33,6 +37,14 @@ export class ServicesService {
         orgId: user.orgId!,
       },
     });
+
+    await this.notificationService.notifyByRoles(
+      user.orgId!,
+      ['OWNER', 'ADMIN', 'MEMBER'],
+      `Service Added`,
+      ` New service has been added to your organisation`,
+      'STAFF',
+    );
 
     this.logger.log(`Service created: ${service.name}`);
     return { success: true, data: service };
@@ -59,6 +71,14 @@ export class ServicesService {
       data,
     });
 
+    await this.notificationService.notifyByRoles(
+      user.orgId!,
+      ['OWNER', 'ADMIN', 'MEMBER'],
+      'Service Updated',
+      `${updated.name} has been updated`,
+      'SERVICE',
+    );
+
     this.logger.log(`Service updated: ${updated.name}`);
 
     return { success: true, data: updated };
@@ -78,6 +98,14 @@ export class ServicesService {
     await this.prisma.db.service.delete({
       where: { id },
     });
+
+    await this.notificationService.notifyByRoles(
+      user.orgId!,
+      ['OWNER', 'ADMIN', 'MEMBER'],
+      `Service removed`,
+      `${existing.name}has been deleted from your organisation`,
+      'SERVICE',
+    );
 
     this.logger.log(`Service deleted: ${existing.name}`);
 

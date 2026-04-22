@@ -17,6 +17,7 @@ import { PublicBookingModule } from './public-booking/public-booking.module.js';
 import { EmailModule } from './email/email.module.js';
 import { LeaveModule } from './leave/leave.module.js';
 import { VapiModule } from './AIBooking/vapi.module.js';
+import { NotificationModule } from './notifications/notifications.module.js';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { VapiModule } from './AIBooking/vapi.module.js';
     EmailModule,
     LeaveModule,
     VapiModule,
+    NotificationModule,
   ],
   controllers: [AppController],
   providers: [AppService],

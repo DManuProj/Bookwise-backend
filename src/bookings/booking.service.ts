@@ -10,6 +10,7 @@ import { AuthenticatedUser } from '../common/types/index.js';
 import { BookingSource, BookingStatus } from '../generated/prisma/enums.js';
 import { CreateBookingDto, UpdateBookingDto } from './booking.dto.js';
 import { EmailService } from '../email/email.service.js';
+import { NotificationService } from '../notifications/notifications.service.js';
 
 @Injectable()
 export class BookingService {
@@ -18,6 +19,7 @@ export class BookingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly emailService: EmailService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   //GET all bookings
@@ -149,6 +151,16 @@ export class BookingService {
       }),
     );
 
+    // After booking is created:
+    await this.notificationService.notifyOrgAdmins(
+      user.orgId!,
+      'New Booking',
+      `${booking.customer.name} booked ${booking.service.name}`,
+      'BOOKING',
+      'BOOKING',
+      booking.id,
+    );
+
     this.logger.log(`Booking created: ${booking.id}`);
 
     return { success: true, data: booking };
@@ -188,6 +200,18 @@ export class BookingService {
       }),
     );
 
+    if (booking.userId) {
+      await this.notificationService.createNotification(
+        booking.userId,
+        user.orgId!,
+        'Booking Updated',
+        `Booking for ${booking.customer.name} (${booking.service.name}) is now ${data.status.toLowerCase()}`,
+        'BOOKING',
+        'BOOKING',
+        booking.id,
+      );
+    }
+
     this.logger.log(`Booking updated: ${updatedBooking.id}`);
 
     return { success: true, data: updatedBooking };
@@ -217,6 +241,7 @@ export class BookingService {
       data: { status: 'CANCELLED' },
     });
 
+    //create an email
     await this.emailService.sendBookingStatusEmail(
       booking!.customer.email,
       booking!.customer.name,
@@ -228,6 +253,16 @@ export class BookingService {
         hour: '2-digit',
         minute: '2-digit',
       }),
+    );
+
+    //send a notification
+    await this.notificationService.notifyOrgAdmins(
+      user.orgId!,
+      'Booking Cancelled',
+      `Booking for ${booking.customer.name} was cancelled`,
+      'BOOKING',
+      'BOOKING',
+      booking.id,
     );
 
     this.logger.log(`Booking cancelled: ${cancelled.id}`);

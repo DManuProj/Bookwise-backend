@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../generated/prisma/prisma.service.js';
 import { EmailService } from '../email/email.service.js';
+import { NotificationService } from '../notifications/notifications.service.js';
 
 @Injectable()
 export class VapiService {
@@ -9,6 +10,7 @@ export class VapiService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly emailService: EmailService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   // ── Main webhook handler
@@ -323,6 +325,15 @@ export class VapiService {
         : null,
       startAt.toLocaleDateString(),
       startAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    );
+
+    await this.notificationService.notifyOrgAdmins(
+      org.id,
+      'New Voice Booking',
+      `${params.customerName} booked ${service.name} via AI`,
+      'BOOKING',
+      'BOOKING',
+      booking.id,
     );
 
     this.logger.log(`Voice AI booking created: ${booking.id}`);

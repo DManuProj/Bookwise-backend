@@ -10,6 +10,7 @@ import { AuthenticatedUser } from '../common/types/index.js';
 import { StaffDto } from '../onboarding/onboarding.dto.js';
 import { ChangeRoleDto } from './staff.dto.js';
 import { EmailService } from '../email/email.service.js';
+import { NotificationService } from '../notifications/notifications.service.js';
 
 @Injectable()
 export class StaffService {
@@ -18,6 +19,7 @@ export class StaffService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly emailService: EmailService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   //GET - fetch staff details
@@ -81,6 +83,13 @@ export class StaffService {
       `${data.firstName} ${data.lastName}`.trim(),
       data.role,
       token,
+    );
+
+    await this.notificationService.notifyOrgAdmins(
+      user.orgId!,
+      'Staff Invited',
+      `${data.firstName} ${data.lastName} was invited to join`,
+      'STAFF',
     );
 
     this.logger.log(`Staff invited: ${data.email}`);
@@ -156,6 +165,14 @@ export class StaffService {
       data: { role: data.role },
     });
 
+    await this.notificationService.createNotification(
+      staff.id,
+      staff.orgId!,
+      `Role Change`,
+      `Your role  has been  change to ${data.role}`,
+      'ROLE',
+    );
+
     this.logger.log(`Role changed: ${updated.email} → ${updated.role}`);
 
     return { success: true, message: 'Role updated' };
@@ -196,6 +213,14 @@ export class StaffService {
         where: { email: staff.email, orgId: user.orgId! },
       });
     });
+
+    await this.notificationService.notifyByRoles(
+      user.orgId!,
+      ['OWNER', 'ADMIN'],
+      `User removed`,
+      ` ${staff.firstName} has been removed from your organisation`,
+      'STAFF',
+    );
 
     this.logger.log(`Staff removed: ${staff.email}`);
 

@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../generated/prisma/prisma.service.js';
 import { EmailService } from '../email/email.service.js';
+import { NotificationService } from '../notifications/notifications.service.js';
 
 @Injectable()
 export class PublicBoookingService {
@@ -9,6 +10,7 @@ export class PublicBoookingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly emailService: EmailService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   //GET  /api/public/:slug
@@ -260,6 +262,15 @@ export class PublicBoookingService {
         hour: '2-digit',
         minute: '2-digit',
       }),
+    );
+
+    await this.notificationService.notifyOrgAdmins(
+      org.id,
+      'New Booking',
+      `${data.customer.name} booked ${service.name}`,
+      'BOOKING',
+      'BOOKING',
+      booking.id,
     );
 
     this.logger.log(`Public booking created: ${booking.id}`);

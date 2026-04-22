@@ -7,12 +7,16 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../generated/prisma/prisma.service.js';
 import { AcceptInvitationDto } from './invitations.dto.js';
+import { NotificationService } from '../notifications/notifications.service.js';
 
 @Injectable()
 export class InvitationsService {
   private readonly logger = new Logger(InvitationsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationService: NotificationService,
+  ) {}
 
   //GET - fetch invitation details
   async getInvitation(token: string) {
@@ -93,6 +97,14 @@ export class InvitationsService {
         },
       });
     });
+
+    await this.notificationService.notifyByRoles(
+      invitation.orgId!,
+      ['OWNER', 'ADMIN', 'MEMBER'],
+      `Accept Invitation`,
+      `${invitation.name} has accepted your invitation`,
+      'STAFF',
+    );
 
     this.logger.log(`Invitation accepted: ${invitation.email}`);
 

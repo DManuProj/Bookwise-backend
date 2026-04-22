@@ -14,6 +14,7 @@ import {
 } from './leave.dto.js';
 import { EmailService } from '../email/email.service.js';
 import { LeaveStatus } from '../generated/prisma/client.js';
+import { NotificationService } from '../notifications/notifications.service.js';
 
 @Injectable()
 export class LeaveService {
@@ -22,6 +23,7 @@ export class LeaveService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly emailService: EmailService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   async getAllLeave(user: AuthenticatedUser, data: GetLeaveQueryDto) {
@@ -79,6 +81,13 @@ export class LeaveService {
         orgId: user.orgId!,
       },
     });
+
+    await this.notificationService.notifyOrgAdmins(
+      user.orgId!,
+      'Leave Request',
+      `${user.firstName} ${user.lastName} requested leave`,
+      'LEAVE',
+    );
 
     this.logger.log(`Leave requested by ${user.email}`);
     return { success: true, data: leave };
@@ -140,6 +149,14 @@ export class LeaveService {
       dto.status,
     );
 
+    await this.notificationService.createNotification(
+      leave.userId,
+      user.orgId!,
+      `Leave ${dto.status}`,
+      `Your leave request has been ${dto.status.toLowerCase()}`,
+      'LEAVE',
+    );
+
     return { success: true, data: updated };
   }
 
@@ -165,6 +182,16 @@ export class LeaveService {
       where: { id },
       data: { status: LeaveStatus.CANCELLED },
     });
+
+    if (isAdmin && leave.userId !== user.id) {
+      await this.notificationService.createNotification(
+        leave.userId,
+        user.orgId!,
+        'Leave Cancelled',
+        'Your leave request has been cancelled by an admin',
+        'LEAVE',
+      );
+    }
 
     this.logger.log(`Leave ${id} cancelled by ${user.email}`);
     return { success: true, message: 'Leave request cancelled' };
