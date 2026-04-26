@@ -261,6 +261,53 @@ export class EmailService {
     }
   }
 
+  // ── Payment failed email ──────────────────────────
+  async sendPaymentFailedEmail(
+    to: string,
+    orgName: string,
+    billingUrl: string,
+  ) {
+    const content = `
+      <div style="background-color:#fef2f2;border-radius:10px;padding:14px 20px;text-align:center;margin:0 0 24px;border:1px solid #fecaca;">
+        <p style="color:#dc2626;font-size:15px;font-weight:600;margin:0;">⚠️ Payment Failed</p>
+      </div>
+
+      <p style="color:#475569;font-size:15px;line-height:26px;margin:0 0 12px;">
+        We were unable to process the payment for your
+        <strong style="color:#0f172a;">${orgName}</strong> Bookwise subscription.
+      </p>
+
+      <p style="color:#475569;font-size:15px;line-height:26px;margin:0 0 12px;">
+        To keep your subscription active and avoid any service interruption, please update your payment method.
+      </p>
+
+      <div style="text-align:center;margin:32px 0;">
+        <a href="${billingUrl}" style="display:inline-block;background-color:#22c55e;border-radius:10px;color:#ffffff;font-size:15px;font-weight:600;padding:14px 36px;text-decoration:none;">
+          Update Payment Method
+        </a>
+      </div>
+
+      <div style="background-color:#fef2f2;border-radius:10px;padding:14px 20px;border:1px solid #fecaca;">
+        <p style="color:#dc2626;font-size:13px;font-weight:500;margin:0;text-align:center;">
+          Your subscription may be paused if payment is not resolved.
+        </p>
+      </div>
+    `;
+
+    try {
+      await this.resend.emails.send({
+        from: 'Bookwise <onboarding@resend.dev>',
+        to,
+        subject: `Action Required: Payment failed for ${orgName}`,
+        html: this.wrapInTemplate(content),
+      });
+
+      this.logger.log(`Payment failed email sent to: ${to}`);
+    } catch (error) {
+      this.logger.error(`Failed to send payment failed email to: ${to}`, error);
+    }
+  }
+
   // ── Leave status email ─────────────────────────────
   async sendLeaveStatusEmail(
     to: string,
