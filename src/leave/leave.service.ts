@@ -29,13 +29,6 @@ export class LeaveService {
   async getAllLeave(user: AuthenticatedUser, data: GetLeaveQueryDto) {
     const isAdmin = user.role === 'OWNER' || user.role === 'ADMIN';
 
-    // const where = {
-    //   orgId: user.orgId!,
-    //   ...(data.status && { status: data.status }),
-    //   ...(!isAdmin && { userId: user.id }),
-    //   ...(isAdmin && data.userId && { userId: data.userId }),
-    // };
-
     const where: any = {
       orgId: user.orgId!,
     };
@@ -60,7 +53,7 @@ export class LeaveService {
       orderBy: { createdAt: 'desc' },
     });
 
-    return { success: true, data: leaves };
+    return { leaves };
   }
 
   async requestLeave(user: AuthenticatedUser, dto: CreateLeaveDto) {
@@ -90,7 +83,7 @@ export class LeaveService {
     );
 
     this.logger.log(`Leave requested by ${user.email}`);
-    return { success: true, data: leave };
+    return { leave };
   }
 
   async updateLeaveStatus(
@@ -157,7 +150,7 @@ export class LeaveService {
       'LEAVE',
     );
 
-    return { success: true, data: updated };
+    return { updated };
   }
 
   async cancelLeave(user: AuthenticatedUser, id: string) {
@@ -194,6 +187,6 @@ export class LeaveService {
     }
 
     this.logger.log(`Leave ${id} cancelled by ${user.email}`);
-    return { success: true, message: 'Leave request cancelled' };
+    return { message: 'Leave request cancelled' };
   }
 }

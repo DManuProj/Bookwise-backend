@@ -44,12 +44,9 @@ export class BillingService {
     });
 
     return {
-      success: true,
-      data: {
-        planTier: org?.planTier || 'STARTER',
-        stripeCustomerId: org?.stripeCustomerId || null,
-        hasSubscription: !!org?.stripeSubscriptionId,
-      },
+      planTier: org?.planTier || 'STARTER',
+      stripeCustomerId: org?.stripeCustomerId || null,
+      hasSubscription: !!org?.stripeSubscriptionId,
     };
   }
 
@@ -131,12 +128,9 @@ export class BillingService {
       this.logger.log(`Subscription updated to ${data.planTier}`);
 
       return {
-        success: true,
         message: `Plan updated to ${data.planTier}`,
-        data: {
-          subscriptionId: updatedSubscription.id,
-          // No clientSecret needed — existing payment method used
-        },
+
+        subscriptionId: updatedSubscription.id,
       };
     }
 
@@ -170,11 +164,8 @@ export class BillingService {
     );
 
     return {
-      success: true,
-      data: {
-        subscriptionId: subscription.id,
-        clientSecret: clientSecret,
-      },
+      subscriptionId: subscription.id,
+      clientSecret: clientSecret,
     };
   }
 
@@ -202,7 +193,7 @@ export class BillingService {
       return_url: `${frontendUrl}/dashboard/settings`,
     });
 
-    return { success: true, data: { url: session.url } };
+    return { url: session.url };
   }
 
   // ── POST /api/billing/webhook ───────────────────────

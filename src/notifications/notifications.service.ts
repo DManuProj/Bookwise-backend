@@ -19,7 +19,7 @@ export class NotificationService {
 
     this.logger.log(`get all notification for ${user.email} `);
 
-    return { success: true, data: notifications };
+    return { notifications };
   }
 
   //PUT mark as read
@@ -39,7 +39,7 @@ export class NotificationService {
 
     this.logger.log(`mark as read notification ${notification.id} `);
 
-    return { success: true, message: 'Notification marked as read' };
+    return { message: 'Notification marked as read' };
   }
 
   //PUT mark as read
@@ -53,7 +53,7 @@ export class NotificationService {
 
     this.logger.log(`mark as all read notifications ${user.id} `);
 
-    return { success: true, message: 'All notifications marked as read' };
+    return { message: 'All notifications marked as read' };
   }
 
   // Helper — create a notification (called by other services)

@@ -62,7 +62,7 @@ export class OrganisationService {
 
     this.logger.log(`Organisation updated: ${updated.slug}`);
 
-    return { success: true, message: 'Organisation updated' };
+    return { message: 'Organisation updated' };
   }
 
   // updatating working hours
@@ -89,7 +89,6 @@ export class OrganisationService {
     });
 
     return {
-      success: true,
       message: 'Working hours updated',
     };
   }
@@ -134,7 +133,6 @@ export class OrganisationService {
       this.logger.warn(`Organisation soft-deleted by: ${user.email}`);
     });
     return {
-      success: true,
       message: 'Organisation deleted',
     };
   }

@@ -41,18 +41,15 @@ export class PublicBoookingService {
       throw new NotFoundException('Business not found');
 
     return {
-      success: true,
-      data: {
-        name: org.name,
-        slug: org.slug,
-        logo: org.logo,
-        description: org.description,
-        phone: org.phone,
-        address: org.address,
-        services: org.services,
-        staff: org.users,
-        workingHours: org.workingHours,
-      },
+      name: org.name,
+      slug: org.slug,
+      logo: org.logo,
+      description: org.description,
+      phone: org.phone,
+      address: org.address,
+      services: org.services,
+      staff: org.users,
+      workingHours: org.workingHours,
     };
   }
 
@@ -92,7 +89,7 @@ export class PublicBoookingService {
 
     // If closed or no hours defined → no slots
     if (!hours || !hours.isOpen) {
-      return { success: true, data: [] };
+      return [];
     }
 
     // ── Step 4: Get existing bookings for that day
@@ -175,7 +172,7 @@ export class PublicBoookingService {
       });
     }
 
-    return { success: true, data: finalSlots };
+    return { finalSlots };
   }
 
   //POST /api/public/bookings
@@ -275,6 +272,6 @@ export class PublicBoookingService {
 
     this.logger.log(`Public booking created: ${booking.id}`);
 
-    return { success: true, data: booking };
+    return { booking };
   }
 }

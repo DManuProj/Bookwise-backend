@@ -14,21 +14,18 @@ export class MeService {
   // GET — return current user profile
   async getMe(user: AuthenticatedUser) {
     return {
-      success: true,
-      data: {
-        id: user.id,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        phone: user.phone,
-        photoUrl: user.photoUrl,
-        role: user.role,
-        status: user.status,
-        profileComplete: user.profileComplete,
-        onboardingComplete: user.onboardingComplete,
-        orgId: user.orgId,
-        org: user.org,
-      },
+      id: user.id,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      phone: user.phone,
+      photoUrl: user.photoUrl,
+      role: user.role,
+      status: user.status,
+      profileComplete: user.profileComplete,
+      onboardingComplete: user.onboardingComplete,
+      orgId: user.orgId,
+      org: user.org,
     };
   }
 
@@ -44,6 +41,6 @@ export class MeService {
 
     this.logger.log(`Profile updated: ${updated.email}`);
 
-    return { success: true, data: updated };
+    return { updated };
   }
 }

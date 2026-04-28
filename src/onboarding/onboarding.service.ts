@@ -126,7 +126,6 @@ export class OnboardingService {
     });
 
     return {
-      success: true,
       orgId: result.org.id,
       message: 'Organization onboarding succesfull',
     };

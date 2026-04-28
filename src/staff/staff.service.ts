@@ -31,7 +31,7 @@ export class StaffService {
 
     this.logger.log(`Get all staff org: ${user.org?.name}`);
 
-    return { success: true, data: staff };
+    return { staff };
   }
 
   // POST — invite a new staff member
@@ -94,7 +94,7 @@ export class StaffService {
 
     this.logger.log(`Staff invited: ${data.email}`);
 
-    return { success: true, message: 'Invitation sent successfully' };
+    return { message: 'Invitation sent successfully' };
   }
 
   async reSendInvitation(user: AuthenticatedUser, id: string) {
@@ -131,7 +131,7 @@ export class StaffService {
 
     this.logger.log(`Invitation resent for: ${invitation.email}`);
 
-    return { success: true, message: 'Invitation resent successfully' };
+    return { message: 'Invitation resent successfully' };
   }
 
   async changeStaffRole(
@@ -175,7 +175,7 @@ export class StaffService {
 
     this.logger.log(`Role changed: ${updated.email} → ${updated.role}`);
 
-    return { success: true, message: 'Role updated' };
+    return { message: 'Role updated' };
   }
 
   // DELETE — delete staff member
@@ -224,6 +224,6 @@ export class StaffService {
 
     this.logger.log(`Staff removed: ${staff.email}`);
 
-    return { success: true, message: 'Staff member removed' };
+    return { message: 'Staff member removed' };
   }
 }

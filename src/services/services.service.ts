@@ -26,7 +26,7 @@ export class ServicesService {
 
     this.logger.log(`get all serviece for ${user.org?.name} `);
 
-    return { success: true, data: services };
+    return { services };
   }
 
   // POST — create organisation's services
@@ -47,7 +47,7 @@ export class ServicesService {
     );
 
     this.logger.log(`Service created: ${service.name}`);
-    return { success: true, data: service };
+    return { service };
   }
 
   // PUT — update organisation's services
@@ -81,7 +81,7 @@ export class ServicesService {
 
     this.logger.log(`Service updated: ${updated.name}`);
 
-    return { success: true, data: updated };
+    return { updated };
   }
 
   // DELETE — delete organisation's services
@@ -109,6 +109,6 @@ export class ServicesService {
 
     this.logger.log(`Service deleted: ${existing.name}`);
 
-    return { success: true, message: 'Service deleted' };
+    return { message: 'Service deleted' };
   }
 }

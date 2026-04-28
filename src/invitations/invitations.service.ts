@@ -35,25 +35,19 @@ export class InvitationsService {
       });
 
       return {
-        success: true,
-        data: {
-          status: 'EXPIRED',
-          orgName: invitation.org.name,
-        },
+        status: 'EXPIRED',
+        orgName: invitation.org.name,
       };
     }
 
     return {
-      success: true,
-      data: {
-        name: invitation.name,
-        email: invitation.email,
-        role: invitation.role,
-        status: invitation.status,
-        orgName: invitation.org.name,
-        orgLogo: invitation.org.logo,
-        expiresAt: invitation.expiresAt,
-      },
+      name: invitation.name,
+      email: invitation.email,
+      role: invitation.role,
+      status: invitation.status,
+      orgName: invitation.org.name,
+      orgLogo: invitation.org.logo,
+      expiresAt: invitation.expiresAt,
     };
   }
 
@@ -108,6 +102,6 @@ export class InvitationsService {
 
     this.logger.log(`Invitation accepted: ${invitation.email}`);
 
-    return { success: true, message: 'Invitation accepted' };
+    return { message: 'Invitation accepted' };
   }
 }
