@@ -19,6 +19,7 @@ import { LeaveModule } from './leave/leave.module.js';
 import { VapiModule } from './AIBooking/vapi.module.js';
 import { NotificationModule } from './notifications/notifications.module.js';
 import { BillingModule } from './billing/billing.module.js';
+import { SlugCheckingModule } from './slug/slug.module.js';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { BillingModule } from './billing/billing.module.js';
     VapiModule,
     NotificationModule,
     BillingModule,
+    SlugCheckingModule,
   ],
   controllers: [AppController],
   providers: [AppService],
