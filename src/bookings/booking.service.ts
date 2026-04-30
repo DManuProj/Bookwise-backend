@@ -68,7 +68,7 @@ export class BookingService {
       orderBy: { startAt: 'asc' },
     });
 
-    return { bookings };
+    return bookings;
   }
 
   //POST create booking
@@ -163,7 +163,7 @@ export class BookingService {
 
     this.logger.log(`Booking created: ${booking.id}`);
 
-    return { booking };
+    return booking;
   }
 
   async updateBooking(
@@ -214,7 +214,7 @@ export class BookingService {
 
     this.logger.log(`Booking updated: ${updatedBooking.id}`);
 
-    return { updatedBooking };
+    return updatedBooking;
   }
 
   //DELETE - booking

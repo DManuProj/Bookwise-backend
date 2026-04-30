@@ -19,7 +19,7 @@ export class NotificationService {
 
     this.logger.log(`get all notification for ${user.email} `);
 
-    return { notifications };
+    return notifications;
   }
 
   //PUT mark as read

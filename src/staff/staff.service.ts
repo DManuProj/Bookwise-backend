@@ -31,7 +31,7 @@ export class StaffService {
 
     this.logger.log(`Get all staff org: ${user.org?.name}`);
 
-    return { staff };
+    return staff;
   }
 
   // POST — invite a new staff member

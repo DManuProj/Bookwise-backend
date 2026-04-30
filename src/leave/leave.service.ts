@@ -53,7 +53,7 @@ export class LeaveService {
       orderBy: { createdAt: 'desc' },
     });
 
-    return { leaves };
+    return leaves;
   }
 
   async requestLeave(user: AuthenticatedUser, dto: CreateLeaveDto) {
@@ -83,7 +83,7 @@ export class LeaveService {
     );
 
     this.logger.log(`Leave requested by ${user.email}`);
-    return { leave };
+    return leave;
   }
 
   async updateLeaveStatus(
@@ -150,7 +150,7 @@ export class LeaveService {
       'LEAVE',
     );
 
-    return { updated };
+    return updated;
   }
 
   async cancelLeave(user: AuthenticatedUser, id: string) {

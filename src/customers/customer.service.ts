@@ -36,7 +36,7 @@ export class CustomerService {
 
     this.logger.log(` fetching custoemrs for ${user.email}`);
 
-    return { customers };
+    return customers;
   }
 
   // GET — single customer with booking history
@@ -58,7 +58,7 @@ export class CustomerService {
       throw new NotFoundException('Customer not found');
     }
 
-    return { customer };
+    return customer;
   }
 
   // PUT — update customer notes
@@ -82,6 +82,6 @@ export class CustomerService {
 
     this.logger.log(`Customer notes updated: ${updated.email}`);
 
-    return { updated };
+    return updated;
   }
 }

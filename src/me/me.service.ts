@@ -41,6 +41,6 @@ export class MeService {
 
     this.logger.log(`Profile updated: ${updated.email}`);
 
-    return { updated };
+    return updated;
   }
 }

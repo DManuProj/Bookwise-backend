@@ -172,7 +172,7 @@ export class PublicBoookingService {
       });
     }
 
-    return { finalSlots };
+    return finalSlots;
   }
 
   //POST /api/public/bookings
@@ -272,6 +272,6 @@ export class PublicBoookingService {
 
     this.logger.log(`Public booking created: ${booking.id}`);
 
-    return { booking };
+    return booking;
   }
 }
