@@ -36,6 +36,7 @@ export class OnboardingService {
           slug: data.slug,
           phone: data.phone,
           description: data.description || null,
+          businessType: data.businessType,
         },
       });
 
