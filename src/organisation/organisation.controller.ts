@@ -17,9 +17,11 @@ import {
   UpdateWorkingHoursDto,
 } from './organisation.dto.js';
 import { WorkingHourDto } from '../onboarding/onboarding.dto.js';
+import { RolesGuard } from '../common/guards/roles.guard.js';
+import { Roles } from '../common/decorators/roles.decorator.js';
 
 @Controller('organisation')
-@UseGuards(ClerkAuthGurad, OrgGuard)
+@UseGuards(ClerkAuthGurad, OrgGuard, RolesGuard)
 export class OrganisationController {
   private readonly logger = new Logger(OrganisationController.name);
 
@@ -35,6 +37,7 @@ export class OrganisationController {
 
   // PUT /api/organisation
   @Put()
+  @Roles('OWNER', 'ADMIN')
   async updateOrganisation(
     @CurrentUser() user: AuthenticatedUser,
     @Body() data: UpdateOrganisationDto,
@@ -45,6 +48,7 @@ export class OrganisationController {
 
   // PUT /api/organisation/hours
   @Put('hours')
+  @Roles('OWNER', 'ADMIN')
   async updateOrganisationHours(
     @CurrentUser() user: AuthenticatedUser,
     @Body() data: UpdateWorkingHoursDto,
@@ -55,6 +59,7 @@ export class OrganisationController {
   }
 
   @Delete()
+  @Roles('OWNER')
   async deleteOrganisation(@CurrentUser() user: AuthenticatedUser) {
     this.logger.log(`Delete request for org by: ${user.email}`);
     return await this.organisationService.deleteOrganisation(user);

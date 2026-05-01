@@ -25,7 +25,6 @@ export class OrganisationService {
       where: { id: user.orgId! },
       include: {
         workingHours: true,
-        services: true,
       },
     });
 
@@ -55,14 +54,14 @@ export class OrganisationService {
     }
 
     // Update only the fields that were sent
-    const updated = await this.prisma.db.organisation.update({
+    const updatedOrg = await this.prisma.db.organisation.update({
       where: { id: user.orgId! },
       data,
     });
 
-    this.logger.log(`Organisation updated: ${updated.slug}`);
+    this.logger.log(`Organisation updated: ${updatedOrg.slug}`);
 
-    return { message: 'Organisation updated' };
+    return updatedOrg;
   }
 
   // updatating working hours
@@ -70,7 +69,7 @@ export class OrganisationService {
     user: AuthenticatedUser,
     data: UpdateWorkingHoursDto,
   ) {
-    await this.prisma.db.$transaction(async (tx) => {
+    const result = await this.prisma.db.$transaction(async (tx) => {
       // Delete all existing hours for this org
       await tx.workingHour.deleteMany({
         where: { orgId: user.orgId! },
@@ -85,12 +84,16 @@ export class OrganisationService {
           orgId: user.orgId!,
         })),
       });
+
+      const workingHours = await tx.workingHour.findMany({
+        where: { orgId: user.orgId! },
+        orderBy: { day: 'asc' },
+      });
       this.logger.log(`Working hours updated for: ${user.email}`);
+      return workingHours;
     });
 
-    return {
-      message: 'Working hours updated',
-    };
+    return result;
   }
 
   async deleteOrganisation(user: AuthenticatedUser) {

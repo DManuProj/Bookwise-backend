@@ -2,15 +2,18 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { OnboardingDto } from './onboarding.dto.js';
 import { AuthenticatedUser } from '../common/types/index.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { EmailService } from '../email/email.service.js';
 
 @Injectable()
 export class OnboardingService {
   private readonly logger = new Logger(OnboardingService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly emailService: EmailService,
+  ) {}
 
   async completeOnboarding(user: AuthenticatedUser, data: OnboardingDto) {
-    // We'll add the full logic next
     this.logger.log(`Processing onboarding for: ${user.email}`);
 
     // ── Guard: already onboarded?
@@ -18,7 +21,6 @@ export class OnboardingService {
       throw new BadRequestException('Onboarding already completed');
 
     // ── Guard: slug already taken?
-
     const existingOrg = await this.prisma.db.organisation.findUnique({
       where: { slug: data.slug },
     });
@@ -27,7 +29,7 @@ export class OnboardingService {
 
     // ── Transaction: create everything
     const result = await this.prisma.db.$transaction(async (tx) => {
-      //creating organization
+      // Step 1: Create organisation
       const org = await tx.organisation.create({
         data: {
           name: data.businessName,
@@ -40,7 +42,6 @@ export class OnboardingService {
       this.logger.log(`Organisation created: ${org.name} (${org.slug})`);
 
       // Step 2: Link user to organisation + mark as complete
-
       const updatedUser = await tx.user.update({
         where: { id: user.id },
         data: {
@@ -70,38 +71,43 @@ export class OnboardingService {
         (member) => member.email !== user.email,
       );
 
-      if (staffToInvite.length > 0) {
-        // Create invitations
-        await tx.staffInvitation.createMany({
-          data: staffToInvite.map((member) => ({
-            name: `${member.firstName} ${member.lastName}`.trim(),
+      const invites: { email: string; name: string; role: string; token: string }[] = [];
+
+      for (const member of staffToInvite) {
+        const token = crypto.randomUUID();
+        const name = `${member.firstName} ${member.lastName}`.trim();
+
+        await tx.staffInvitation.create({
+          data: {
+            name,
             email: member.email,
             role: member.role,
-            token: crypto.randomUUID(),
+            token,
             expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000),
             status: 'PENDING',
             orgId: org.id,
-          })),
+          },
         });
 
-        // Create User records (INACTIVE until they accept)
-        for (const member of staffToInvite) {
-          await tx.user.create({
-            data: {
-              clerkId: `pending_${crypto.randomUUID()}`,
-              email: member.email,
-              firstName: member.firstName,
-              lastName: member.lastName,
-              phone: member.phone,
-              role: member.role,
-              status: 'INACTIVE',
-              profileComplete: false,
-              onboardingComplete: true,
-              orgId: org.id,
-            },
-          });
-        }
+        await tx.user.create({
+          data: {
+            clerkId: `pending_${crypto.randomUUID()}`,
+            email: member.email,
+            firstName: member.firstName,
+            lastName: member.lastName,
+            phone: member.phone,
+            role: member.role,
+            status: 'INACTIVE',
+            profileComplete: false,
+            onboardingComplete: true,
+            orgId: org.id,
+          },
+        });
 
+        invites.push({ email: member.email, name, role: member.role, token });
+      }
+
+      if (staffToInvite.length > 0) {
         this.logger.log(
           `${staffToInvite.length} staff invitation(s) + user(s) created`,
         );
@@ -122,8 +128,19 @@ export class OnboardingService {
         `${data.services.length} service(s) created for org: ${org.slug}`,
       );
 
-      return { org, updatedUser };
+      return { org, updatedUser, invites };
     });
+
+    // Send invitation emails after the transaction commits
+    for (const invite of result.invites) {
+      await this.emailService.sendInvitationEmail(
+        invite.email,
+        result.org.name,
+        invite.name,
+        invite.role,
+        invite.token,
+      );
+    }
 
     return {
       orgId: result.org.id,
