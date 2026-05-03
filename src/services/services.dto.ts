@@ -5,6 +5,7 @@ import {
   IsOptional,
   IsString,
   Min,
+  ValidateIf,
 } from 'class-validator';
 
 export class CreateServiceDto {
@@ -35,8 +36,9 @@ export class UpdateServiceDto {
   name?: string;
 
   @IsOptional()
+  @ValidateIf((_, value) => value !== null)
   @IsString()
-  description?: string;
+  description?: string | null;
 
   @IsOptional()
   @IsNumber()

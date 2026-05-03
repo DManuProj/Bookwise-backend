@@ -34,6 +34,7 @@ export class ServicesService {
     const service = await this.prisma.db.service.create({
       data: {
         ...data,
+        description: data.description?.trim() || null,
         orgId: user.orgId!,
       },
     });
@@ -68,7 +69,12 @@ export class ServicesService {
 
     const updated = await this.prisma.db.service.update({
       where: { id },
-      data,
+      data: {
+        ...data,
+        ...(data.description !== undefined && {
+          description: data.description?.trim() || null,
+        }),
+      },
     });
 
     await this.notificationService.notifyByRoles(
