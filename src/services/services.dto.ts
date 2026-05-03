@@ -14,8 +14,9 @@ export class CreateServiceDto {
   name!: string;
 
   @IsOptional()
+  @ValidateIf((_, value) => value !== null)
   @IsString()
-  description?: string;
+  description?: string | null;
 
   @IsNumber()
   @Min(1)

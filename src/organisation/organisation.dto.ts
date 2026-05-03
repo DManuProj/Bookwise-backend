@@ -7,6 +7,7 @@ import {
   Min,
   IsArray,
   ValidateNested,
+  ValidateIf,
 } from 'class-validator';
 import { WorkingHourDto } from '../onboarding/onboarding.dto.js';
 
@@ -25,8 +26,9 @@ export class UpdateOrganisationDto {
   phone?: string;
 
   @IsOptional()
+  @ValidateIf((_, value) => value !== null)
   @IsString()
-  description?: string;
+  description?: string | null;
 
   @IsOptional()
   @IsString()
