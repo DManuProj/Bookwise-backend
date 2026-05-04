@@ -41,22 +41,12 @@ export class StaffController {
     return await this.staffService.inviteStaff(user, data);
   }
 
-  //POST /api/staff/resend/:id
-  @Post('resend/:id')
-  async reSendInvitation(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('id') id: string,
-  ) {
-    this.logger.log(` re send invitation for: ${user.email}`);
-    return await this.staffService.reSendInvitation(user, id);
-  }
-
-  //PUT /api/staff/role/:id
-  @Put('role/:id')
+  //PUT /api/staff/:id/role
+  @Put(':id/role')
   async changeStaffRole(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
-    @Body() data: ChangeRoleDto, // → ChangeRoleDto
+    @Body() data: ChangeRoleDto,
   ) {
     this.logger.log(` Changing role for staff ${id} by: ${user.email}`);
     return await this.staffService.changeStaffRole(user, id, data);

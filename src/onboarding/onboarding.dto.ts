@@ -43,10 +43,6 @@ export class StaffDto {
   @IsEmail()
   email!: string;
 
-  @IsString()
-  @IsNotEmpty()
-  phone!: string;
-
   @IsEnum(Role)
   role!: Role;
 }

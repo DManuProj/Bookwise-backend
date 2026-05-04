@@ -1,6 +1,7 @@
-import { Module } from '@nestjs/common';
+import { Global, Module } from '@nestjs/common';
 import { ClerkAuthGurad } from './auth.guard.js';
 
+@Global()
 @Module({
   providers: [ClerkAuthGurad],
   exports: [ClerkAuthGurad],

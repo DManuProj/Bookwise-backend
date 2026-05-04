@@ -72,7 +72,12 @@ export class OnboardingService {
         (member) => member.email !== user.email,
       );
 
-      const invites: { email: string; name: string; role: string; token: string }[] = [];
+      const invites: {
+        email: string;
+        name: string;
+        role: string;
+        token: string;
+      }[] = [];
 
       for (const member of staffToInvite) {
         const token = crypto.randomUUID();
@@ -90,28 +95,11 @@ export class OnboardingService {
           },
         });
 
-        await tx.user.create({
-          data: {
-            clerkId: `pending_${crypto.randomUUID()}`,
-            email: member.email,
-            firstName: member.firstName,
-            lastName: member.lastName,
-            phone: member.phone,
-            role: member.role,
-            status: 'INACTIVE',
-            profileComplete: false,
-            onboardingComplete: true,
-            orgId: org.id,
-          },
-        });
-
         invites.push({ email: member.email, name, role: member.role, token });
       }
 
       if (staffToInvite.length > 0) {
-        this.logger.log(
-          `${staffToInvite.length} staff invitation(s) + user(s) created`,
-        );
+        this.logger.log(`${staffToInvite.length} staff invitation(s) created`);
       }
 
       // Step 5: Create Services

@@ -8,6 +8,8 @@ import {
 import { AcceptInvitationDto } from './invitations.dto.js';
 import { NotificationService } from '../notifications/notifications.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { AuthenticatedUser } from '../common/types/index.js';
+import { EmailService } from '../email/email.service.js';
 
 @Injectable()
 export class InvitationsService {
@@ -16,6 +18,7 @@ export class InvitationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notificationService: NotificationService,
+    private readonly emailService: EmailService,
   ) {}
 
   //GET - fetch invitation details
@@ -71,6 +74,11 @@ export class InvitationsService {
       throw new BadRequestException('Invitation has expired');
     }
 
+    // Split the stored "First Last" name back into parts
+    const nameParts = invitation.name.trim().split(/\s+/);
+    const firstName = nameParts[0] || '';
+    const lastName = nameParts.slice(1).join(' ') || '';
+
     await this.prisma.db.$transaction(async (tx) => {
       // Update invitation status
       await tx.staffInvitation.update({
@@ -78,16 +86,18 @@ export class InvitationsService {
         data: { status: 'ACCEPTED' },
       });
 
-      // Find and update the user record
-      // (created during onboarding or invite with placeholder clerkId)
-      await tx.user.updateMany({
-        where: {
-          email: invitation.email,
-          orgId: invitation.orgId,
-        },
+      // CREATE the user (no longer updateMany)
+      await tx.user.create({
         data: {
           clerkId: data.clerkId,
+          email: invitation.email,
+          firstName,
+          lastName,
+          role: invitation.role,
           status: 'ACTIVE',
+          profileComplete: false,
+          onboardingComplete: true, // they didn't onboard the org, the owner did
+          orgId: invitation.orgId,
         },
       });
     });
@@ -103,5 +113,43 @@ export class InvitationsService {
     this.logger.log(`Invitation accepted: ${invitation.email}`);
 
     return { message: 'Invitation accepted' };
+  }
+
+  // POST — resend an invitation (admin/owner only)
+  async reSendInvitation(user: AuthenticatedUser, id: string) {
+    const invitation = await this.prisma.db.staffInvitation.findUnique({
+      where: { id },
+    });
+
+    if (!invitation) throw new NotFoundException('Invitation not found');
+
+    if (invitation.orgId !== user.orgId)
+      throw new ForbiddenException('Not your invitation');
+
+    if (invitation.status === 'ACCEPTED')
+      throw new BadRequestException('Invitation already accepted');
+
+    const newToken = crypto.randomUUID();
+
+    const updated = await this.prisma.db.staffInvitation.update({
+      where: { id },
+      data: {
+        token: newToken,
+        expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000),
+        status: 'RESENT',
+      },
+    });
+
+    await this.emailService.sendInvitationEmail(
+      invitation.email,
+      user.org?.name || '',
+      invitation.name,
+      invitation.role,
+      newToken,
+    );
+
+    this.logger.log(`Invitation resent for: ${invitation.email}`);
+
+    return updated;
   }
 }

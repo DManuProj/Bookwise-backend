@@ -25,13 +25,22 @@ export class StaffService {
   //GET - fetch staff details
 
   async getAllStaff(user: AuthenticatedUser) {
-    const staff = await this.prisma.db.user.findMany({
+    const users = await this.prisma.db.user.findMany({
       where: { orgId: user.orgId! },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    const invitations = await this.prisma.db.staffInvitation.findMany({
+      where: {
+        orgId: user.orgId!,
+        status: { in: ['PENDING', 'RESENT', 'EXPIRED'] },
+      },
+      orderBy: { createdAt: 'asc' },
     });
 
     this.logger.log(`Get all staff org: ${user.org?.name}`);
 
-    return staff;
+    return { users, invitations };
   }
 
   // POST — invite a new staff member
@@ -44,37 +53,31 @@ export class StaffService {
     if (existingUser)
       throw new BadRequestException('This email is already in your team');
 
-    const { firstName, lastName, email, phone, role } = data;
+    // Check if email already has a PENDING invitation
+    const existingInvite = await this.prisma.db.staffInvitation.findFirst({
+      where: {
+        email: data.email,
+        orgId: user.orgId!,
+        status: { in: ['PENDING', 'RESENT'] },
+      },
+    });
+    if (existingInvite)
+      throw new BadRequestException(
+        'An invitation is already pending for this email',
+      );
 
     const token = crypto.randomUUID();
-    await this.prisma.db.$transaction(async (tx) => {
-      await tx.staffInvitation.create({
-        data: {
-          token,
-          name: `${firstName} ${lastName}`.trim(),
-          email: email,
-          role,
-          expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000),
-          status: 'PENDING',
-          orgId: user.orgId!,
-        },
-      });
 
-      // Create user record (INACTIVE until they accept)
-      await tx.user.create({
-        data: {
-          clerkId: `pending_${crypto.randomUUID()}`,
-          email,
-          firstName,
-          lastName,
-          phone,
-          role,
-          status: 'INACTIVE',
-          profileComplete: false,
-          onboardingComplete: true,
-          orgId: user.orgId,
-        },
-      });
+    const invitation = await this.prisma.db.staffInvitation.create({
+      data: {
+        token,
+        name: `${data.firstName} ${data.lastName}`.trim(),
+        email: data.email,
+        role: data.role,
+        expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000),
+        status: 'PENDING',
+        orgId: user.orgId!,
+      },
     });
 
     await this.emailService.sendInvitationEmail(
@@ -94,44 +97,7 @@ export class StaffService {
 
     this.logger.log(`Staff invited: ${data.email}`);
 
-    return { message: 'Invitation sent successfully' };
-  }
-
-  async reSendInvitation(user: AuthenticatedUser, id: string) {
-    // Find the invitation
-    const invitation = await this.prisma.db.staffInvitation.findUnique({
-      where: { id },
-    });
-
-    if (!invitation) throw new NotFoundException('Invitation not found');
-
-    if (invitation.orgId !== user.orgId)
-      throw new ForbiddenException('Not your invitation');
-
-    if (invitation.status === 'ACCEPTED')
-      throw new BadRequestException('Invitation already accepted');
-    const newToken = crypto.randomUUID();
-    // Update with new token and expiry
-    await this.prisma.db.staffInvitation.update({
-      where: { id },
-      data: {
-        token: newToken,
-        expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000),
-        status: 'RESENT',
-      },
-    });
-
-    await this.emailService.sendInvitationEmail(
-      invitation.email,
-      user.org?.name || '',
-      invitation.name,
-      invitation.role,
-      newToken,
-    );
-
-    this.logger.log(`Invitation resent for: ${invitation.email}`);
-
-    return { message: 'Invitation resent successfully' };
+    return invitation;
   }
 
   async changeStaffRole(
