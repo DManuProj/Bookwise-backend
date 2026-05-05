@@ -4,6 +4,7 @@ import {
   Get,
   Logger,
   Param,
+  Patch,
   Post,
   UseGuards,
 } from '@nestjs/common';
@@ -46,5 +47,16 @@ export class InvitationsController {
   ) {
     this.logger.log(`Resend invitation by: ${user.email}`);
     return await this.invitationService.reSendInvitation(user, id);
+  }
+
+  // PATCH /api/invitations/:id/cancel  — PROTECTED (owners/admins only)
+  @Patch(':id/cancel')
+  @UseGuards(ClerkAuthGurad, OrgGuard)
+  async cancelInvitation(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ) {
+    this.logger.log(`Cancel invitation by: ${user.email}`);
+    return await this.invitationService.cancelInvitation(user, id);
   }
 }

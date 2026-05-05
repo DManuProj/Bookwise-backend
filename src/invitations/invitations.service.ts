@@ -66,6 +66,10 @@ export class InvitationsService {
       throw new BadRequestException('Invitation already accepted');
     }
 
+    if (invitation.status === 'CANCELLED') {
+      throw new BadRequestException('Invitation has been cancelled');
+    }
+
     if (invitation.expiresAt < new Date()) {
       await this.prisma.db.staffInvitation.update({
         where: { id: invitation.id },
@@ -149,6 +153,33 @@ export class InvitationsService {
     );
 
     this.logger.log(`Invitation resent for: ${invitation.email}`);
+
+    return updated;
+  }
+
+  // PATCH — cancel a pending invitation (admin/owner only)
+  async cancelInvitation(user: AuthenticatedUser, id: string) {
+    const invitation = await this.prisma.db.staffInvitation.findUnique({
+      where: { id },
+    });
+
+    if (!invitation) throw new NotFoundException('Invitation not found');
+
+    if (invitation.orgId !== user.orgId)
+      throw new ForbiddenException('Not your invitation');
+
+    if (invitation.status === 'ACCEPTED')
+      throw new BadRequestException('Cannot cancel an already accepted invitation');
+
+    if (invitation.status === 'CANCELLED')
+      throw new BadRequestException('Invitation is already cancelled');
+
+    const updated = await this.prisma.db.staffInvitation.update({
+      where: { id },
+      data: { status: 'CANCELLED' },
+    });
+
+    this.logger.log(`Invitation cancelled for: ${invitation.email} by ${user.email}`);
 
     return updated;
   }

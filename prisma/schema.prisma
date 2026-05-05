@@ -44,6 +44,7 @@ enum InviteStatus {
   ACCEPTED
   EXPIRED
   RESENT
+  CANCELLED
 }
 
 enum UserStatus {

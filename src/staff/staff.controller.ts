@@ -31,7 +31,7 @@ export class StaffController {
     return await this.staffService.getAllStaff(user);
   }
 
-  // POST /api/staff/invite/:id/resend
+  // POST /api/staff/invite
   @Post('invite')
   async inviteStaff(
     @CurrentUser() user: AuthenticatedUser,
