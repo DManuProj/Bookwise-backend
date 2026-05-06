@@ -60,6 +60,20 @@ export class WebhooksService {
       return;
     }
 
+    const pendingInvitation = await this.prisma.db.staffInvitation.findFirst({
+      where: {
+        email,
+        status: { in: ['PENDING', 'RESENT'] },
+      },
+    });
+
+    if (pendingInvitation) {
+      this.logger.log(
+        `Pending invitation exists for ${email}, skipping webhook user creation. Accept endpoint will handle it.`,
+      );
+      return;
+    }
+
     // Check if user already exists (prevent duplicates)
     const existingUser = await this.prisma.db.user.findUnique({
       where: { clerkId: id },
