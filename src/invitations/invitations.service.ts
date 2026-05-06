@@ -25,10 +25,25 @@ export class InvitationsService {
   async getInvitation(token: string) {
     const invitation = await this.prisma.db.staffInvitation.findUnique({
       where: { token },
-      include: { org: true }, // need org name for display
+      include: {
+        org: {
+          include: {
+            users: {
+              where: { role: 'OWNER', status: 'ACTIVE' },
+              select: { firstName: true, lastName: true },
+              take: 1,
+            },
+          },
+        },
+      },
     });
 
     if (!invitation) throw new NotFoundException('Invalid invitation link');
+
+    const owner = invitation.org.users[0];
+    const invitedBy = owner
+      ? `${owner.firstName} ${owner.lastName}`.trim()
+      : invitation.org.name;
 
     // Check if expired — update status on read
     if (invitation.status !== 'ACCEPTED' && invitation.expiresAt < new Date()) {
@@ -37,10 +52,7 @@ export class InvitationsService {
         data: { status: 'EXPIRED' },
       });
 
-      return {
-        status: 'EXPIRED',
-        orgName: invitation.org.name,
-      };
+      invitation.status = 'EXPIRED';
     }
 
     return {
@@ -50,6 +62,7 @@ export class InvitationsService {
       status: invitation.status,
       orgName: invitation.org.name,
       orgLogo: invitation.org.logo,
+      invitedBy,
       expiresAt: invitation.expiresAt,
     };
   }
@@ -169,7 +182,9 @@ export class InvitationsService {
       throw new ForbiddenException('Not your invitation');
 
     if (invitation.status === 'ACCEPTED')
-      throw new BadRequestException('Cannot cancel an already accepted invitation');
+      throw new BadRequestException(
+        'Cannot cancel an already accepted invitation',
+      );
 
     if (invitation.status === 'CANCELLED')
       throw new BadRequestException('Invitation is already cancelled');
@@ -179,7 +194,9 @@ export class InvitationsService {
       data: { status: 'CANCELLED' },
     });
 
-    this.logger.log(`Invitation cancelled for: ${invitation.email} by ${user.email}`);
+    this.logger.log(
+      `Invitation cancelled for: ${invitation.email} by ${user.email}`,
+    );
 
     return updated;
   }

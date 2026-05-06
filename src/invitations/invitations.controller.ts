@@ -34,7 +34,7 @@ export class InvitationsController {
     @Param('token') token: string,
     @Body() data: AcceptInvitationDto,
   ) {
-    this.logger.log(`Fetching invitations`);
+    this.logger.log(`Accepting invitation`);
     return await this.invitationService.acceptInvitation(token, data);
   }
 
