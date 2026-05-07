@@ -10,6 +10,7 @@ import { NotificationService } from '../notifications/notifications.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { AuthenticatedUser } from '../common/types/index.js';
 import { EmailService } from '../email/email.service.js';
+import { ClerkService } from '../auth/clerk.service.js';
 
 @Injectable()
 export class InvitationsService {
@@ -19,6 +20,7 @@ export class InvitationsService {
     private readonly prisma: PrismaService,
     private readonly notificationService: NotificationService,
     private readonly emailService: EmailService,
+    private readonly clerkService: ClerkService,
   ) {}
 
   //GET - fetch invitation details
@@ -89,6 +91,31 @@ export class InvitationsService {
         data: { status: 'EXPIRED' },
       });
       throw new BadRequestException('Invitation has expired');
+    }
+
+    // Verify the Clerk user's email matches the invitation
+    const clerkUser = await this.clerkService.getUser(data.clerkId);
+    const clerkEmail = clerkUser.emailAddresses[0]?.emailAddress;
+
+    if (
+      !clerkEmail ||
+      clerkEmail.toLowerCase() !== invitation.email.toLowerCase()
+    ) {
+      this.logger.warn(
+        `Email mismatch on accept: invitation=${invitation.email}, clerk=${clerkEmail}, clerkId=${data.clerkId}`,
+      );
+
+      // Clean up: webhook may have created an OWNER row for this clerkId
+      await this.prisma.db.user.deleteMany({
+        where: { clerkId: data.clerkId },
+      });
+
+      // Delete the Clerk auth account too
+      await this.clerkService.deleteUser(data.clerkId);
+
+      throw new BadRequestException(
+        'The email you signed up with does not match the invitation. Please use the email this invitation was sent to.',
+      );
     }
 
     // Split the stored "First Last" name back into parts
