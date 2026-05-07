@@ -141,6 +141,7 @@ export class InvitationsService {
           status: 'ACTIVE',
           profileComplete: false,
           onboardingComplete: true, // they didn't onboard the org, the owner did
+          photoUrl: clerkUser.imageUrl || null,
           orgId: invitation.orgId,
         },
       });

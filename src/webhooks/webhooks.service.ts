@@ -42,6 +42,10 @@ export class WebhooksService {
         await this.handleUserCreated(event.data);
         break;
 
+      case 'user.updated':
+        await this.handleUserUpdated(event.data);
+        break;
+
       default:
         this.logger.log(`Unhandled event type: ${event.type}`);
     }
@@ -99,5 +103,34 @@ export class WebhooksService {
     });
 
     this.logger.log(`User created: ${user.email} (clerkId: ${user.clerkId})`);
+  }
+
+  private async handleUserUpdated(data: any) {
+    const { id, first_name, last_name, image_url } = data;
+
+    // Find the DB user by clerkId
+    const existingUser = await this.prisma.db.user.findUnique({
+      where: { clerkId: id },
+    });
+
+    if (!existingUser) {
+      this.logger.log(
+        `User.updated webhook for unknown clerkId: ${id}, skipping`,
+      );
+      return;
+    }
+
+    await this.prisma.db.user.update({
+      where: { clerkId: id },
+      data: {
+        firstName: first_name || existingUser.firstName,
+        lastName: last_name || existingUser.lastName,
+        photoUrl: image_url || existingUser.photoUrl,
+      },
+    });
+
+    this.logger.log(
+      `User profile synced: ${existingUser.email} (clerkId: ${id})`,
+    );
   }
 }
