@@ -2,9 +2,11 @@ import { Type } from 'class-transformer';
 import {
   IsDate,
   IsEnum,
+  IsInt,
   IsNotEmpty,
   IsOptional,
   IsString,
+  Min,
 } from 'class-validator';
 import { BookingStatus } from '../generated/prisma/enums.js';
 
@@ -32,13 +34,7 @@ export class CreateBookingDto {
   @IsString()
   staffId?: string;
 
-  @Type(() => Date)
-  @IsDate()
-  startAt!: Date;
-
-  @Type(() => Date)
-  @IsDate()
-  endAt!: Date;
+  @Type(() => Date) @IsDate() startAt!: Date;
 
   @IsOptional()
   @IsString()
@@ -57,4 +53,41 @@ export class CreateBookingDto {
 export class UpdateBookingDto {
   @IsEnum(BookingStatus)
   status!: BookingStatus;
+}
+
+// NEW — query params for GET /bookings
+export class GetBookingsQueryDto {
+  @IsOptional()
+  @IsEnum(BookingStatus)
+  status?: BookingStatus;
+
+  @IsOptional()
+  @IsString()
+  staffId?: string;
+
+  @IsOptional()
+  @IsString()
+  search?: string;
+
+  @IsOptional()
+  @Type(() => Date)
+  @IsDate()
+  from?: Date;
+
+  @IsOptional()
+  @Type(() => Date)
+  @IsDate()
+  to?: Date;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number = 1;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  limit?: number = 10;
 }

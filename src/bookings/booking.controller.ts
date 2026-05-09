@@ -5,6 +5,7 @@ import {
   Get,
   Logger,
   Param,
+  Patch,
   Post,
   Put,
   Query,
@@ -13,7 +14,11 @@ import {
 import { CurrentUser } from '../auth/auth.decorator.js';
 import type { AuthenticatedUser } from '../common/types/index.js';
 import { BookingService } from './booking.service.js';
-import { CreateBookingDto, UpdateBookingDto } from './booking.dto.js';
+import {
+  CreateBookingDto,
+  GetBookingsQueryDto,
+  UpdateBookingDto,
+} from './booking.dto.js';
 import { ClerkAuthGurad } from '../auth/auth.guard.js';
 import { OrgGuard } from '../common/guards/org.guard.js';
 import { BookingStatus } from '../generated/prisma/enums.js';
@@ -30,17 +35,10 @@ export class BookingController {
   @Get()
   async getAllBookings(
     @CurrentUser() user: AuthenticatedUser,
-    @Query('status') status: string,
-    @Query('date') date: Date,
-    @Query('staffId') staffId?: string,
+    @Query() query: GetBookingsQueryDto,
   ) {
-    this.logger.log(`fetting bookings for ${user.email}`);
-    return await this.bookingService.getAllBookings(
-      user,
-      status,
-      date,
-      staffId,
-    );
+    this.logger.log(`fetching bookings for ${user.email}`);
+    return await this.bookingService.getAllBookings(user, query);
   }
 
   @Post()
@@ -60,17 +58,7 @@ export class BookingController {
     @Param('id') id: string,
     @Body() data: UpdateBookingDto,
   ) {
-    this.logger.log(`updatating bookings for ${user.email}`);
+    this.logger.log(`updating bookings for ${user.email}`);
     return await this.bookingService.updateBooking(user, id, data);
-  }
-
-  @Delete(':id')
-  @Roles('OWNER', 'ADMIN')
-  async cancelBooking(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('id') id: string,
-  ) {
-    this.logger.log(`deleting bookings for ${user.email}`);
-    return await this.bookingService.cancelBooking(user, id);
   }
 }
