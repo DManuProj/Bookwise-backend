@@ -1,16 +1,19 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { AuthenticatedUser } from '../common/types/index.js';
-import { BookingSource, BookingStatus } from '../generated/prisma/enums.js';
+import { DayOfWeek } from '../generated/prisma/enums.js';
 import {
   CreateBookingDto,
+  GetBookingSlotsDto,
   GetBookingsQueryDto,
-  UpdateBookingDto,
+  UpdateBookingDataDto,
+  UpdateBookingStatusDto,
 } from './booking.dto.js';
 import { EmailService } from '../email/email.service.js';
 import { NotificationService } from '../notifications/notifications.service.js';
@@ -122,9 +125,121 @@ export class BookingService {
     };
   }
 
+  //GET all booking slots
+  async getAvailableSlots(user: AuthenticatedUser, query: GetBookingSlotsDto) {
+    const { serviceId, staffId, date } = query;
+
+    //  Service check
+    const service = await this.prisma.db.service.findUnique({
+      where: { id: serviceId },
+    });
+
+    if (!service || service.orgId !== user.orgId) {
+      throw new NotFoundException('Service not found');
+    }
+
+    // Staff check
+    const staff = await this.prisma.db.user.findUnique({
+      where: { id: staffId },
+    });
+
+    if (!staff || staff.orgId !== user.orgId) {
+      throw new NotFoundException('Staff member not found');
+    }
+
+    //  Day of week
+    const dayNames = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+    const dayOfWeek = dayNames[date.getDay()];
+
+    const [org, hours] = await Promise.all([
+      this.prisma.db.organisation.findUnique({ where: { id: user.orgId! } }),
+      this.prisma.db.workingHour.findFirst({
+        where: { orgId: user.orgId!, day: dayOfWeek as DayOfWeek },
+      }),
+    ]);
+
+    if (!org) throw new NotFoundException('Organisation not found');
+
+    // Closed check
+    if (!hours || !hours.isOpen) return [];
+
+    //get existing bookings for the day
+    const dayStart = new Date(date);
+    dayStart.setHours(0, 0, 0, 0);
+
+    const dayEnd = new Date(date);
+    dayEnd.setHours(23, 59, 59, 999);
+
+    const existingBookings = await this.prisma.db.booking.findMany({
+      where: {
+        userId: staffId,
+        orgId: user.orgId!,
+        status: { notIn: ['CANCELLED', 'NO_SHOW'] },
+        startAt: { gte: dayStart, lte: dayEnd },
+        ...(query.excludeBookingId && { id: { not: query.excludeBookingId } }),
+      },
+    });
+
+    //all slots
+    const slotDuration = service.durationMins;
+    const buffer = service.buffer || org!.bufferMins || 0;
+
+    const [openH, openM] = hours.openTime.split(':').map(Number);
+    const [closeH, closeM] = hours.closeTime.split(':').map(Number);
+    const openMins = openH * 60 + openM;
+    const closeMins = closeH * 60 + closeM;
+
+    const allSlots: string[] = [];
+    for (let mins = openMins; mins + slotDuration <= closeMins; mins += 30) {
+      const h = Math.floor(mins / 60);
+      const m = mins % 60;
+      allSlots.push(
+        `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`,
+      );
+    }
+
+    //Filter conflicting slots
+    const availableSlots = allSlots.filter((slot) => {
+      const [slotH, slotM] = slot.split(':').map(Number);
+      const slotStart = slotH * 60 + slotM;
+      const slotEnd = slotStart + slotDuration + buffer;
+
+      const hasConflict = existingBookings.some((booking) => {
+        const bookingStart =
+          booking.startAt.getHours() * 60 + booking.startAt.getMinutes();
+        const bookingEnd =
+          booking.endAt.getHours() * 60 + booking.endAt.getMinutes() + buffer;
+
+        // Standard overlap check
+        return slotStart < bookingEnd && slotEnd > bookingStart;
+      });
+
+      return !hasConflict;
+    });
+
+    //Filter past slots if today
+    const now = new Date();
+    const today = now.toISOString().split('T')[0];
+    const requestDate = date.toISOString().split('T')[0];
+
+    if (requestDate !== today) return availableSlots;
+
+    const currentMins = now.getHours() * 60 + now.getMinutes();
+    const leadTime = org!.minLeadTimeMins || 0;
+    const minBookingTime = currentMins + leadTime;
+
+    this.logger.log(
+      `Slots for staff ${staffId} on ${requestDate}: ${availableSlots.length} available`,
+    );
+    return availableSlots.filter((slot) => {
+      const [h, m] = slot.split(':').map(Number);
+      return h * 60 + m >= minBookingTime;
+    });
+  }
+
   //POST create booking
   async createBooking(user: AuthenticatedUser, data: CreateBookingDto) {
-    // Check service exists and belongs to org
+    //  Service exists + belongs to org
     const service = await this.prisma.db.service.findUnique({
       where: { id: data.serviceId },
     });
@@ -133,17 +248,79 @@ export class BookingService {
       throw new NotFoundException('Service not found');
     }
 
-    // compute endAt from service duration
+    // Reject past bookings
+    const now = new Date();
+    if (data.startAt < now) {
+      throw new BadRequestException('Cannot book a time in the past.');
+    }
+
+    // Staff exists + belongs to org ──
+    const staff = await this.prisma.db.user.findUnique({
+      where: { id: data.staffId },
+    });
+
+    if (!staff || staff.orgId !== user.orgId) {
+      throw new NotFoundException('Staff member not found');
+    }
+
+    // ── 4. Compute endAt ──
     const endAt = new Date(
       data.startAt.getTime() + service.durationMins * 60000,
     );
 
+    //  Working hours check ──
+    // NOTE: assumes server time matches org's local time.
+    // Timezone-aware version is in end-of-project list.
+    const dayNames = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+    const dayOfWeek = dayNames[data.startAt.getDay()];
+
+    const hours = await this.prisma.db.workingHour.findFirst({
+      where: { orgId: user.orgId!, day: dayOfWeek as DayOfWeek },
+    });
+
+    if (!hours || !hours.isOpen) {
+      throw new BadRequestException('The business is closed on this day.');
+    }
+
+    const startMins = data.startAt.getHours() * 60 + data.startAt.getMinutes();
+    const endMins = endAt.getHours() * 60 + endAt.getMinutes();
+    const [openH, openM] = hours.openTime.split(':').map(Number);
+    const [closeH, closeM] = hours.closeTime.split(':').map(Number);
+    const openMins = openH * 60 + openM;
+    const closeMins = closeH * 60 + closeM;
+
+    if (startMins < openMins || endMins > closeMins) {
+      throw new BadRequestException(
+        `Booking must be between ${hours.openTime} and ${hours.closeTime}.`,
+      );
+    }
+
+    // staff overlap check
+    const conflict = await this.prisma.db.booking.findFirst({
+      where: {
+        userId: data.staffId,
+        orgId: user.orgId!,
+        status: { notIn: ['CANCELLED', 'NO_SHOW'] },
+        startAt: { lt: endAt },
+        endAt: { gt: data.startAt },
+      },
+    });
+
+    if (conflict) {
+      this.logger.log(
+        `Booking conflict: staff ${data.staffId} already booked ${conflict.id}`,
+      );
+      throw new ConflictException(
+        'This staff member already has a booking that overlaps this time.',
+      );
+    }
+
+    // Transaction: customer resolution + booking creation ──
     const booking = await this.prisma.db.$transaction(async (tx) => {
-      // Step 1: Resolve customer ID
       let customerId: string;
 
       if (data.customerId) {
-        // Existing customer — verify they belong to this org
+        // Owner picked from search → use existing customer
         const existing = await tx.customer.findUnique({
           where: { id: data.customerId },
         });
@@ -154,7 +331,22 @@ export class BookingService {
 
         customerId = existing.id;
       } else if (data.customer) {
-        // New customer — create them
+        // Owner typed details → must be a brand new customer
+        const existingByEmail = await tx.customer.findUnique({
+          where: {
+            email_orgId: {
+              email: data.customer.email,
+              orgId: user.orgId!,
+            },
+          },
+        });
+
+        if (existingByEmail) {
+          throw new ConflictException(
+            'A customer with this email already exists. Please search and select them from the list.',
+          );
+        }
+
         const newCustomer = await tx.customer.create({
           data: {
             name: data.customer.name,
@@ -169,7 +361,6 @@ export class BookingService {
         throw new BadRequestException('Customer info is required');
       }
 
-      // Step 2: Create booking
       const newBooking = await tx.booking.create({
         data: {
           startAt: data.startAt,
@@ -179,19 +370,16 @@ export class BookingService {
           note: data.note || null,
           customerId,
           serviceId: data.serviceId,
-          userId: data.staffId || null,
+          userId: data.staffId,
           orgId: user.orgId!,
         },
-        include: {
-          service: true,
-          customer: true,
-          user: true,
-        },
+        include: { service: true, customer: true, user: true },
       });
 
       return newBooking;
     });
 
+    //  Side effects: email + notification
     await this.emailService.sendBookingConfirmationEmail(
       booking.customer.email,
       booking.customer.name,
@@ -207,7 +395,6 @@ export class BookingService {
       }),
     );
 
-    // After booking is created:
     await this.notificationService.notifyOrgAdmins(
       user.orgId!,
       'New Booking',
@@ -222,10 +409,127 @@ export class BookingService {
     return booking;
   }
 
-  async updateBooking(
+  //PATCH update booking data (time/service/staff/note)
+  async updateBookingData(
     user: AuthenticatedUser,
     id: string,
-    data: UpdateBookingDto,
+    data: UpdateBookingDataDto,
+  ) {
+    // ── 1. Fetch existing booking ──
+    const existingBooking = await this.prisma.db.booking.findUnique({
+      where: { id },
+      include: { service: true, customer: true, user: true },
+    });
+
+    if (!existingBooking || existingBooking.orgId !== user.orgId) {
+      throw new NotFoundException('Booking not found');
+    }
+
+    if (existingBooking.status !== 'PENDING') {
+      throw new BadRequestException('Only pending bookings can be edited');
+    }
+
+    // ── 2. Resolve effective service ──
+    // If serviceId changed, fetch and verify the new one. Else reuse existing.
+    let service = existingBooking.service;
+    if (data.serviceId && data.serviceId !== existingBooking.serviceId) {
+      const newService = await this.prisma.db.service.findUnique({
+        where: { id: data.serviceId },
+      });
+      if (!newService || newService.orgId !== user.orgId) {
+        throw new NotFoundException('Service not found');
+      }
+      service = newService;
+    }
+
+    //  Resolve effective staff ──
+    let staffId = existingBooking.userId!;
+    if (data.staffId && data.staffId !== existingBooking.userId) {
+      const newStaff = await this.prisma.db.user.findUnique({
+        where: { id: data.staffId },
+      });
+      if (!newStaff || newStaff.orgId !== user.orgId) {
+        throw new NotFoundException('Staff member not found');
+      }
+      staffId = newStaff.id;
+    }
+
+    //Resolve effective start/end times
+    const startAt = data.startAt ?? existingBooking.startAt;
+    const endAt = new Date(startAt.getTime() + service.durationMins * 60000);
+
+    // ── 5. Past booking check ──
+    if (startAt < new Date()) {
+      throw new BadRequestException(
+        'Cannot move booking to a time in the past.',
+      );
+    }
+
+    // Working hours check
+    const dayNames = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+    const dayOfWeek = dayNames[startAt.getDay()];
+
+    const hours = await this.prisma.db.workingHour.findFirst({
+      where: { orgId: user.orgId!, day: dayOfWeek as DayOfWeek },
+    });
+
+    if (!hours || !hours.isOpen) {
+      throw new BadRequestException('The business is closed on this day.');
+    }
+
+    const startMins = startAt.getHours() * 60 + startAt.getMinutes();
+    const endMins = endAt.getHours() * 60 + endAt.getMinutes();
+    const [openH, openM] = hours.openTime.split(':').map(Number);
+    const [closeH, closeM] = hours.closeTime.split(':').map(Number);
+    const openMins = openH * 60 + openM;
+    const closeMins = closeH * 60 + closeM;
+
+    if (startMins < openMins || endMins > closeMins) {
+      throw new BadRequestException(
+        `Booking must be between ${hours.openTime} and ${hours.closeTime}.`,
+      );
+    }
+
+    // Overlap check — EXCLUDE this booking from search
+    const conflict = await this.prisma.db.booking.findFirst({
+      where: {
+        id: { not: id }, //  ignore self
+        userId: staffId,
+        orgId: user.orgId!,
+        status: { notIn: ['CANCELLED', 'NO_SHOW'] },
+        startAt: { lt: endAt },
+        endAt: { gt: startAt },
+      },
+    });
+
+    if (conflict) {
+      throw new ConflictException(
+        'This staff member already has a booking that overlaps this time.',
+      );
+    }
+
+    // Update
+    const updated = await this.prisma.db.booking.update({
+      where: { id },
+      data: {
+        startAt,
+        endAt,
+        serviceId: service.id,
+        userId: staffId,
+        ...(data.note !== undefined && { note: data.note || null }),
+      },
+      include: { service: true, customer: true, user: true },
+    });
+
+    this.logger.log(`Booking updated: ${updated.id}`);
+
+    return updated;
+  }
+
+  async updateBookingStatus(
+    user: AuthenticatedUser,
+    id: string,
+    data: UpdateBookingStatusDto,
   ) {
     const booking = await this.prisma.db.booking.findUnique({
       where: { id },

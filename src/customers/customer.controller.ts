@@ -15,7 +15,10 @@ import { CustomerService } from './customer.service.js';
 import { CurrentUser } from '../auth/auth.decorator.js';
 import type { AuthenticatedUser } from '../common/types/index.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
-import { UpdateCustomerNotesDto } from './customer.dto.js';
+import {
+  GetCustomersQueryDto,
+  UpdateCustomerNotesDto,
+} from './customer.dto.js';
 
 @Controller('customers')
 @UseGuards(ClerkAuthGurad, OrgGuard, RolesGuard)
@@ -24,17 +27,16 @@ export class CustomerController {
 
   constructor(private readonly customerService: CustomerService) {}
 
-  // GET /api/customers?name=Sarah&email=sarah@...
+  // GET /api/customers?search=Sarah
   @Get()
   @Roles('OWNER', 'ADMIN')
   async getAllCustomers(
     @CurrentUser() user: AuthenticatedUser,
-    @Query('name') name?: string,
-    @Query('email') email?: string,
+    @Query() query: GetCustomersQueryDto,
   ) {
-    this.logger.log(`fetching customers for ${user.email}`);
+    this.logger.log(`fetching customers for ${user.org?.name}`);
 
-    return await this.customerService.getAllCustomers(user, name, email);
+    return await this.customerService.getAllCustomers(user, query);
   }
 
   // GET /api/customers/:id

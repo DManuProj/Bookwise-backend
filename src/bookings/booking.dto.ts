@@ -25,14 +25,21 @@ export class BookingCustomerDto {
   phone!: string;
 }
 
+export class GetBookingSlotsDto {
+  @IsString() @IsNotEmpty() serviceId!: string;
+  @IsString() @IsNotEmpty() staffId!: string;
+  @Type(() => Date) @IsDate() date!: Date;
+  @IsOptional() @IsString() excludeBookingId?: string;
+}
+
 export class CreateBookingDto {
   @IsString()
   @IsNotEmpty()
   serviceId!: string;
 
-  @IsOptional()
   @IsString()
-  staffId?: string;
+  @IsNotEmpty()
+  staffId!: string;
 
   @Type(() => Date) @IsDate() startAt!: Date;
 
@@ -50,7 +57,7 @@ export class CreateBookingDto {
   customer?: BookingCustomerDto;
 }
 
-export class UpdateBookingDto {
+export class UpdateBookingStatusDto {
   @IsEnum(BookingStatus)
   status!: BookingStatus;
 }
@@ -90,4 +97,11 @@ export class GetBookingsQueryDto {
   @IsInt()
   @Min(1)
   limit?: number = 10;
+}
+
+export class UpdateBookingDataDto {
+  @IsOptional() @IsString() serviceId?: string;
+  @IsOptional() @IsString() staffId?: string;
+  @IsOptional() @Type(() => Date) @IsDate() startAt?: Date;
+  @IsOptional() @IsString() note?: string;
 }

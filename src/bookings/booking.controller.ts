@@ -16,8 +16,10 @@ import type { AuthenticatedUser } from '../common/types/index.js';
 import { BookingService } from './booking.service.js';
 import {
   CreateBookingDto,
+  GetBookingSlotsDto,
   GetBookingsQueryDto,
-  UpdateBookingDto,
+  UpdateBookingDataDto,
+  UpdateBookingStatusDto,
 } from './booking.dto.js';
 import { ClerkAuthGurad } from '../auth/auth.guard.js';
 import { OrgGuard } from '../common/guards/org.guard.js';
@@ -41,6 +43,14 @@ export class BookingController {
     return await this.bookingService.getAllBookings(user, query);
   }
 
+  @Get('/slots')
+  async getAvailableSlots(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: GetBookingSlotsDto,
+  ) {
+    return await this.bookingService.getAvailableSlots(user, query);
+  }
+
   @Post()
   @Roles('OWNER', 'ADMIN')
   async createBooking(
@@ -51,14 +61,25 @@ export class BookingController {
     return await this.bookingService.createBooking(user, data);
   }
 
-  @Put(':id')
+  @Patch(':id')
   @Roles('OWNER', 'ADMIN')
-  async updateBooking(
+  async updateBookingData(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
-    @Body() data: UpdateBookingDto,
+    @Body() data: UpdateBookingDataDto,
   ) {
     this.logger.log(`updating bookings for ${user.email}`);
-    return await this.bookingService.updateBooking(user, id, data);
+    return await this.bookingService.updateBookingData(user, id, data);
+  }
+
+  @Put(':id')
+  @Roles('OWNER', 'ADMIN')
+  async updateBookingStatus(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() data: UpdateBookingStatusDto,
+  ) {
+    this.logger.log(`updating bookings for ${user.email}`);
+    return await this.bookingService.updateBookingStatus(user, id, data);
   }
 }
