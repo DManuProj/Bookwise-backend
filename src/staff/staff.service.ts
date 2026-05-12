@@ -8,6 +8,7 @@ import {
 import { AuthenticatedUser } from '../common/types/index.js';
 import { StaffDto } from '../onboarding/onboarding.dto.js';
 import { ChangeRoleDto } from './staff.dto.js';
+import { AuditService } from '../audit/audit.service.js';
 import { EmailService } from '../email/email.service.js';
 import { NotificationService } from '../notifications/notifications.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -20,6 +21,7 @@ export class StaffService {
     private readonly prisma: PrismaService,
     private readonly emailService: EmailService,
     private readonly notificationService: NotificationService,
+    private readonly auditService: AuditService,
   ) {}
 
   //GET - fetch staff details
@@ -94,6 +96,20 @@ export class StaffService {
       `${data.firstName} ${data.lastName} was invited to join`,
       'STAFF',
     );
+
+    await this.auditService.log({
+      orgId: user.orgId!,
+      userId: user.id,
+      actorName: `${user.firstName} ${user.lastName}`,
+      action: 'STAFF_INVITED',
+      entityType: 'StaffInvitation',
+      entityId: invitation.id,
+      metadata: {
+        inviteeName: invitation.name,
+        inviteeEmail: invitation.email,
+        role: invitation.role,
+      },
+    });
 
     this.logger.log(`Staff invited: ${data.email}`);
 

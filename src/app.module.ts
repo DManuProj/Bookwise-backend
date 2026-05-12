@@ -20,6 +20,8 @@ import { VapiModule } from './AIBooking/vapi.module.js';
 import { NotificationModule } from './notifications/notifications.module.js';
 import { BillingModule } from './billing/billing.module.js';
 import { SlugCheckingModule } from './slug/slug.module.js';
+import { OverviewModule } from './overview/overview.module.js';
+import { AuditModule } from './audit/audit.module.js';
 
 @Module({
   imports: [
@@ -44,6 +46,8 @@ import { SlugCheckingModule } from './slug/slug.module.js';
     NotificationModule,
     BillingModule,
     SlugCheckingModule,
+    OverviewModule,
+    AuditModule,
   ],
   controllers: [AppController],
   providers: [AppService],

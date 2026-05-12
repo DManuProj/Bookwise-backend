@@ -1,7 +1,6 @@
 import {
   BadRequestException,
   ConflictException,
-  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -15,6 +14,7 @@ import {
   UpdateBookingDataDto,
   UpdateBookingStatusDto,
 } from './booking.dto.js';
+import { AuditService } from '../audit/audit.service.js';
 import { EmailService } from '../email/email.service.js';
 import { NotificationService } from '../notifications/notifications.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -27,6 +27,7 @@ export class BookingService {
     private readonly prisma: PrismaService,
     private readonly emailService: EmailService,
     private readonly notificationService: NotificationService,
+    private readonly auditService: AuditService,
   ) {}
 
   //GET all bookings
@@ -263,7 +264,7 @@ export class BookingService {
       throw new NotFoundException('Staff member not found');
     }
 
-    // ── 4. Compute endAt ──
+    //  Compute endAt
     const endAt = new Date(
       data.startAt.getTime() + service.durationMins * 60000,
     );
@@ -404,6 +405,36 @@ export class BookingService {
       booking.id,
     );
 
+    await this.auditService.log({
+      orgId: user.orgId!,
+      userId: user.id,
+      actorName: `${user.firstName} ${user.lastName}`,
+      action: 'BOOKING_CREATED',
+      entityType: 'Booking',
+      entityId: booking.id,
+      metadata: {
+        customerName: booking.customer.name,
+        serviceName: booking.service.name,
+        startAt: booking.startAt,
+        source: booking.source,
+      },
+    });
+
+    if (data.customer) {
+      await this.auditService.log({
+        orgId: user.orgId!,
+        userId: user.id,
+        actorName: `${user.firstName} ${user.lastName}`,
+        action: 'CUSTOMER_CREATED',
+        entityType: 'Customer',
+        entityId: booking.customerId,
+        metadata: {
+          name: booking.customer.name,
+          email: booking.customer.email,
+        },
+      });
+    }
+
     this.logger.log(`Booking created: ${booking.id}`);
 
     return booking;
@@ -521,6 +552,23 @@ export class BookingService {
       include: { service: true, customer: true, user: true },
     });
 
+    await this.auditService.log({
+      orgId: user.orgId!,
+      userId: user.id,
+      actorName: `${user.firstName} ${user.lastName}`,
+      action: 'BOOKING_UPDATED',
+      entityType: 'Booking',
+      entityId: updated.id,
+      metadata: {
+        customerName: updated.customer.name,
+        serviceName: updated.service.name,
+        startAt: updated.startAt,
+        changedFields: Object.keys(data).filter(
+          (k) => data[k as keyof typeof data] !== undefined,
+        ),
+      },
+    });
+
     this.logger.log(`Booking updated: ${updated.id}`);
 
     return updated;
@@ -579,6 +627,25 @@ export class BookingService {
         'BOOKING',
         booking.id,
       );
+    }
+
+    if (data.status === 'CANCELLED' || data.status === 'COMPLETED') {
+      await this.auditService.log({
+        orgId: user.orgId!,
+        userId: user.id,
+        actorName: `${user.firstName} ${user.lastName}`,
+        action:
+          data.status === 'CANCELLED'
+            ? 'BOOKING_CANCELLED'
+            : 'BOOKING_COMPLETED',
+        entityType: 'Booking',
+        entityId: booking.id,
+        metadata: {
+          customerName: booking.customer.name,
+          serviceName: booking.service.name,
+          startAt: booking.startAt,
+        },
+      });
     }
 
     this.logger.log(`Booking updated: ${updatedBooking.id}`);

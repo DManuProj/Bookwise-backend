@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { AuthenticatedUser } from '../common/types/index.js';
 import { CreateServiceDto, UpdateServiceDto } from './services.dto.js';
+import { AuditService } from '../audit/audit.service.js';
 import { NotificationService } from '../notifications/notifications.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
@@ -16,6 +17,7 @@ export class ServicesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notificationService: NotificationService,
+    private readonly auditService: AuditService,
   ) {}
 
   // GET — fetch the organisation's services
@@ -46,6 +48,20 @@ export class ServicesService {
       ` New service has been added to your organisation`,
       'STAFF',
     );
+
+    await this.auditService.log({
+      orgId: user.orgId!,
+      userId: user.id,
+      actorName: `${user.firstName} ${user.lastName}`,
+      action: 'SERVICE_CREATED',
+      entityType: 'Service',
+      entityId: service.id,
+      metadata: {
+        name: service.name,
+        durationMins: service.durationMins,
+        price: service.price,
+      },
+    });
 
     this.logger.log(`Service created: ${service.name}`);
     return service;

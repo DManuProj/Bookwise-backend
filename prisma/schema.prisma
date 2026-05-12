@@ -193,19 +193,33 @@ model Booking {
   user   User?   @relation(fields: [userId], references: [id])
 }
 
+enum AuditAction {
+  BOOKING_CREATED
+  BOOKING_CANCELLED
+  BOOKING_COMPLETED
+  BOOKING_UPDATED
+  CUSTOMER_CREATED
+  STAFF_INVITED
+  STAFF_JOINED
+  SERVICE_CREATED
+}
+
 model AuditLog {
-  id         String   @id @default(cuid())
-  action     String
+  id         String      @id @default(cuid())
+  action     AuditAction
   entityType String
   entityId   String
-  metadata   String?
-  createdAt  DateTime @default(now())
+  actorName  String?
+  metadata   Json?
+  createdAt  DateTime    @default(now())
 
   orgId String
   org   Organisation @relation(fields: [orgId], references: [id])
 
   userId String?
   user   User?   @relation(fields: [userId], references: [id])
+
+  @@index([orgId, createdAt])
 }
 
 model Notification {

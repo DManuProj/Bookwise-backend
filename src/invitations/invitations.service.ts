@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { AcceptInvitationDto } from './invitations.dto.js';
+import { AuditService } from '../audit/audit.service.js';
 import { NotificationService } from '../notifications/notifications.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { AuthenticatedUser } from '../common/types/index.js';
@@ -21,6 +22,7 @@ export class InvitationsService {
     private readonly notificationService: NotificationService,
     private readonly emailService: EmailService,
     private readonly clerkService: ClerkService,
+    private readonly auditService: AuditService,
   ) {}
 
   //GET - fetch invitation details
@@ -154,6 +156,19 @@ export class InvitationsService {
       `${invitation.name} has accepted your invitation`,
       'STAFF',
     );
+
+    await this.auditService.log({
+      orgId: invitation.orgId,
+      actorName: invitation.name,
+      action: 'STAFF_JOINED',
+      entityType: 'StaffInvitation',
+      entityId: invitation.id,
+      metadata: {
+        name: invitation.name,
+        email: invitation.email,
+        role: invitation.role,
+      },
+    });
 
     this.logger.log(`Invitation accepted: ${invitation.email}`);
 
