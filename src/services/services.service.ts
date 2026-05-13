@@ -46,7 +46,7 @@ export class ServicesService {
       ['OWNER', 'ADMIN', 'MEMBER'],
       `Service Added`,
       ` New service has been added to your organisation`,
-      'STAFF',
+      'SERVICE',
     );
 
     await this.auditService.log({

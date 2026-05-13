@@ -30,7 +30,7 @@ export class NotificationController {
   }
 
   // PUT  /api/notifications/read-all
-  @Put('real-all')
+  @Put('read-all')
   async markAllAsRead(@CurrentUser() user: AuthenticatedUser) {
     this.logger.log(`mark as read ALL notificationS for: ${user.email}`);
     return await this.notificationService.markAllAsRead(user);
