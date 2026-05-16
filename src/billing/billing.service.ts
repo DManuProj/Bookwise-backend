@@ -147,7 +147,7 @@ export class BillingService {
         orgId: org.id,
         planTier: data.planTier,
       },
-      expand: ['latest_invoice.payment_intent'],
+      expand: ['latest_invoice.confirmation_secret'],
     });
 
     // Get the client secret for frontend to confirm payment
