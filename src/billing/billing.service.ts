@@ -138,8 +138,10 @@ export class BillingService {
         {
           items: [{ id: subscription.items.data[0].id, price: priceId }],
           proration_behavior: 'always_invoice',
-          cancel_at_period_end: false,
-          cancel_at: '',
+          ...(subscription.cancel_at_period_end && {
+            cancel_at_period_end: false,
+          }),
+          ...(subscription.cancel_at !== null && { cancel_at: '' }),
           metadata: { orgId: org.id, planTier: data.planTier },
         },
       );
