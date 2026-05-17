@@ -136,17 +136,11 @@ export class BillingService {
       const updatedSubscription = await this.stripe.subscriptions.update(
         org.stripeSubscriptionId,
         {
-          items: [
-            {
-              id: subscription.items.data[0].id,
-              price: priceId,
-            },
-          ],
+          items: [{ id: subscription.items.data[0].id, price: priceId }],
           proration_behavior: 'always_invoice',
-          metadata: {
-            orgId: org.id,
-            planTier: data.planTier,
-          },
+          cancel_at_period_end: false,
+          cancel_at: '',
+          metadata: { orgId: org.id, planTier: data.planTier },
         },
       );
 
