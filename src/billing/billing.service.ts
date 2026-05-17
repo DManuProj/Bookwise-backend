@@ -43,28 +43,35 @@ export class BillingService {
       where: { id: user.orgId! },
     });
 
-      // If no subscription, return basic status
-  if (!org?.stripeSubscriptionId) {
-    return {
-      planTier: org?.planTier || 'STARTER',
-      stripeCustomerId: org?.stripeCustomerId || null,
-      hasSubscription: false,
-      cancelAtPeriodEnd: false,
-      currentPeriodEnd: null,
-    };
-  }
+    // If no subscription, return basic status
+    if (!org?.stripeSubscriptionId) {
+      return {
+        planTier: org?.planTier || 'STARTER',
+        stripeCustomerId: org?.stripeCustomerId || null,
+        hasSubscription: false,
+        cancelAtPeriodEnd: false,
+        currentPeriodEnd: null,
+      };
+    }
 
-   // Fetch live subscription details from Stripe
-  const subscription = await this.stripe.subscriptions.retrieve(
-    org.stripeSubscriptionId,
-  );
+    // Fetch live subscription details from Stripe
+    const subscription = await this.stripe.subscriptions.retrieve(
+      org.stripeSubscriptionId,
+    );
+
+    const isCancelling =
+      subscription.cancel_at_period_end || subscription.cancel_at !== null;
+    const cancelAt =
+      subscription.cancel_at ??
+      subscription.items.data[0]?.current_period_end ??
+      null;
 
     return {
       planTier: org.planTier,
-    stripeCustomerId: org.stripeCustomerId,
-    hasSubscription: true,
-    cancelAtPeriodEnd: subscription.cancel_at_period_end,
-    currentPeriodEnd: subscription.items.data[0]?.current_period_end ?? null,
+      stripeCustomerId: org.stripeCustomerId,
+      hasSubscription: true,
+      cancelAtPeriodEnd: isCancelling,
+      currentPeriodEnd: cancelAt,
     };
   }
 
