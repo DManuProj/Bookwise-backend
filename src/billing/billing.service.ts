@@ -47,29 +47,46 @@ export class BillingService {
     const planTier = user.org!.planTier;
     const limits = TIER_LIMITS[planTier];
 
-    const [activeStaff, pendingInvites, activeServices, bookingsThisMonth] =
-      await Promise.all([
-        this.prisma.db.user.count({
-          where: { orgId, status: 'ACTIVE' },
-        }),
+    const monthStart = startOfMonth(new Date());
 
-        this.prisma.db.staffInvitation.count({
-          where: { orgId, status: { in: ['PENDING', 'RESENT'] } },
-        }),
+    const [
+      activeStaff,
+      pendingInvites,
+      activeServices,
+      bookingsThisMonth,
+      voiceUsageSum,
+    ] = await Promise.all([
+      this.prisma.db.user.count({
+        where: { orgId, status: 'ACTIVE' },
+      }),
 
-        this.prisma.db.service.count({
-          where: { orgId, isDeleted: false },
-        }),
+      this.prisma.db.staffInvitation.count({
+        where: { orgId, status: { in: ['PENDING', 'RESENT'] } },
+      }),
 
-        this.prisma.db.booking.count({
-          where: {
-            orgId,
-            createdAt: { gte: startOfMonth(new Date()) },
-          },
-        }),
-      ]);
+      this.prisma.db.service.count({
+        where: { orgId, isDeleted: false },
+      }),
+
+      this.prisma.db.booking.count({
+        where: {
+          orgId,
+          createdAt: { gte: monthStart },
+        },
+      }),
+
+      this.prisma.db.voiceUsage.aggregate({
+        where: {
+          orgId,
+          createdAt: { gte: monthStart },
+        },
+        _sum: { duration: true },
+      }),
+    ]);
 
     const staffUsed = activeStaff + pendingInvites;
+    const voiceSecondsUsed = voiceUsageSum._sum.duration || 0;
+    const voiceMinutesUsed = Math.ceil(voiceSecondsUsed / 60);
 
     // Helper: serialize Infinity → null (JSON-safe)
     const formatLimit = (cap: number) => (cap === UNLIMITED ? null : cap);
@@ -96,7 +113,7 @@ export class BillingService {
         atCap: isAtCap(bookingsThisMonth, limits.bookingsPerMonth),
       },
       voiceMinutes: {
-        used: 0, // TODO Phase 14: wire actual Vapi minute tracking
+        used: voiceMinutesUsed,
         limit: formatLimit(limits.voiceMinutesPerMonth),
         atCap: isAtCap(0, limits.voiceMinutesPerMonth),
       },

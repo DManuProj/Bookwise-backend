@@ -46,6 +46,8 @@ export class VapiService {
   private async handleToolCalls(message: any) {
     const toolCalls = message.toolCallList || [];
 
+    const callId = message.call?.id;
+
     // Process each tool call in the array
     // (usually just 1, but Vapi allows batching)
     const results = await Promise.all(
@@ -66,7 +68,7 @@ export class VapiService {
               result = await this.getAvailableSlots(args);
               break;
             case 'createBooking':
-              result = await this.createBooking(args);
+              result = await this.createBooking(args, callId);
               break;
             default:
               this.logger.warn(`Unknown tool: ${name}`);
@@ -111,6 +113,12 @@ export class VapiService {
       return { error: 'Business not found' };
     }
 
+    if (org.planTier === 'STARTER') {
+      return {
+        error:
+          'Voice booking is not available for this business. Please book manually instead.',
+      };
+    }
     // Format for the AI to read naturally
     // AI will say: "We offer Haircut for $35, takes 30 minutes..."
     return {
@@ -254,17 +262,20 @@ export class VapiService {
   // ── Function 3: Create booking
   // AI calls this after collecting all customer details.
   // Creates customer (or finds existing) + creates booking.
-  private async createBooking(params: {
-    slug: string;
-    serviceId: string;
-    date: string;
-    time: string;
-    customerName: string;
-    customerEmail: string;
-    customerPhone: string;
-    staffId?: string;
-    note?: string;
-  }) {
+  private async createBooking(
+    params: {
+      slug: string;
+      serviceId: string;
+      date: string;
+      time: string;
+      customerName: string;
+      customerEmail: string;
+      customerPhone: string;
+      staffId?: string;
+      note?: string;
+    },
+    callId?: string,
+  ) {
     const org = await this.prisma.db.organisation.findUnique({
       where: { slug: params.slug },
     });
@@ -322,6 +333,7 @@ export class VapiService {
           source: 'VOICE_AI',
           status: 'PENDING',
           note: params.note || null,
+          voiceCallId: callId || null,
           customerId: customer.id,
           serviceId: params.serviceId,
           userId: params.staffId || null,
@@ -371,49 +383,88 @@ export class VapiService {
   // We find the booking created during this call
   // and save the transcript for reporting.
   private async handleEndOfCallReport(message: any) {
-    const { transcript, summary, endedReason, durationSeconds } = message;
+    // Vapi payload shape (verify these field paths against actual logs later)
+    const callId = message.call?.id;
+    const durationSeconds = message.durationSeconds || 0;
+    const transcript = message.transcript;
+    const endedReason = message.endedReason;
+
+    // The slug was passed when the call started (assistantOverrides.variableValues)
+    // Vapi echoes it back in the call object
+    const slug = message.call?.assistantOverrides?.variableValues?.slug;
 
     this.logger.log(
-      `Call ended. Duration: ${durationSeconds}s. Reason: ${endedReason}`,
+      `Call ${callId} ended. Duration: ${durationSeconds}s. Reason: ${endedReason}`,
     );
 
-    // transcript is the full conversation text:
-    // "AI: Hi, welcome to Glow Beauty!\nUser: I'd like to book a haircut\n..."
-
-    if (!transcript) {
-      this.logger.warn('No transcript in end-of-call report');
+    if (!callId) {
+      this.logger.warn(
+        'end-of-call-report missing call.id — cannot track usage',
+      );
       return;
     }
 
-    // Find the most recent VOICE_AI booking (created in last 5 minutes)
-    // This links the transcript to the booking that was just made
-    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+    if (!slug) {
+      this.logger.warn(`Call ${callId} missing slug — cannot attribute usage`);
+      return;
+    }
 
-    const recentBooking = await this.prisma.db.booking.findFirst({
-      where: {
-        source: 'VOICE_AI',
-        createdAt: { gte: fiveMinutesAgo },
-      },
-      orderBy: { createdAt: 'desc' },
+    // 1. Find the org so we have orgId
+    const org = await this.prisma.db.organisation.findUnique({
+      where: { slug },
+      select: { id: true },
     });
 
-    if (recentBooking) {
-      // Save transcript and duration on the booking
-      await this.prisma.db.booking.update({
-        where: { id: recentBooking.id },
+    if (!org) {
+      this.logger.warn(`Call ${callId} for unknown slug: ${slug}`);
+      return;
+    }
+
+    // 2. Insert VoiceUsage — catch duplicate-callId errors (Vapi retry)
+    try {
+      await this.prisma.db.voiceUsage.create({
         data: {
-          voiceTranscript: transcript,
-          voiceDuration: durationSeconds || null,
+          callId,
+          duration: durationSeconds,
+          orgId: org.id,
         },
       });
-
-      this.logger.log(`Transcript saved for booking: ${recentBooking.id}`);
-    } else {
-      // Conversation happened but no booking was made
-      // Customer might have just asked questions and left
       this.logger.log(
-        'No booking found for this call — customer may have disconnected',
+        `Voice usage tracked: org=${org.id} callId=${callId} duration=${durationSeconds}s`,
       );
+    } catch (err) {
+      // P2002 = Prisma unique constraint violation — Vapi retried the webhook
+      if ((err as any).code === 'P2002') {
+        this.logger.log(
+          `Duplicate webhook for callId ${callId} — already tracked`,
+        );
+      } else {
+        this.logger.error(
+          `Failed to track voice usage: ${(err as Error).message}`,
+        );
+      }
+    }
+
+    // 3. Save transcript on the booking (existing logic, improved with callId)
+    if (transcript) {
+      const booking = await this.prisma.db.booking.findFirst({
+        where: { voiceCallId: callId },
+      });
+
+      if (booking) {
+        await this.prisma.db.booking.update({
+          where: { id: booking.id },
+          data: {
+            voiceTranscript: transcript,
+            voiceDuration: durationSeconds || null,
+          },
+        });
+        this.logger.log(`Transcript saved for booking: ${booking.id}`);
+      } else {
+        this.logger.log(
+          `No booking for call ${callId} — minutes tracked, no transcript link`,
+        );
+      }
     }
   }
 }
