@@ -103,6 +103,7 @@ model Organisation {
   invitations   StaffInvitation[]
   workingHours  WorkingHour[]
   leaveRequests StaffLeave[]
+  voiceUsage    VoiceUsage[]
 }
 
 model User {
@@ -140,6 +141,7 @@ model Service {
   price        Float
   buffer       Int      @default(0)
   isActive     Boolean  @default(true)
+  isDeleted    Boolean  @default(false)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -147,6 +149,18 @@ model Service {
 
   orgId String
   org   Organisation @relation(fields: [orgId], references: [id])
+}
+
+model VoiceUsage {
+  id        String   @id @default(cuid())
+  callId    String   @unique
+  duration  Int
+  createdAt DateTime @default(now())
+
+  orgId String
+  org   Organisation @relation(fields: [orgId], references: [id])
+
+  @@index([orgId, createdAt])
 }
 
 model Customer {
@@ -177,6 +191,7 @@ model Booking {
   note            String?
   voiceTranscript String?
   voiceDuration   Int?
+  voiceCallId     String?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 

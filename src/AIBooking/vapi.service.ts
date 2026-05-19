@@ -22,8 +22,8 @@ export class VapiService {
     switch (message?.type) {
       // AI needs to call one of our functions
       // (getServices, getAvailableSlots, createBooking)
-      case 'function-call':
-        return await this.handleFunctionCall(message);
+      case 'tool-calls':
+        return await this.handleToolCalls(message);
 
       // Conversation ended — Vapi sends a full report
       // Contains transcript, duration, summary
@@ -43,26 +43,48 @@ export class VapiService {
   // Vapi AI decides which function to call based on
   // the conversation. We defined these functions when
   // creating the assistant (next step).
-  private async handleFunctionCall(message: any) {
-    const { functionCall } = message;
-    const { name, parameters } = functionCall;
+  private async handleToolCalls(message: any) {
+    const toolCalls = message.toolCallList || [];
 
-    this.logger.log(`Vapi function: ${name}`);
+    // Process each tool call in the array
+    // (usually just 1, but Vapi allows batching)
+    const results = await Promise.all(
+      toolCalls.map(async (call: any) => {
+        const { id, function: fn } = call;
+        const { name, arguments: args } = fn;
 
-    switch (name) {
-      case 'getServices':
-        return await this.getServices(parameters);
+        this.logger.log(`Vapi tool: ${name}`);
 
-      case 'getAvailableSlots':
-        return await this.getAvailableSlots(parameters);
+        // Route to handler — returns plain data (no { result: ... } wrapper)
+        let result: any;
+        try {
+          switch (name) {
+            case 'getServices':
+              result = await this.getServices(args);
+              break;
+            case 'getAvailableSlots':
+              result = await this.getAvailableSlots(args);
+              break;
+            case 'createBooking':
+              result = await this.createBooking(args);
+              break;
+            default:
+              this.logger.warn(`Unknown tool: ${name}`);
+              result = { error: 'Unknown tool' };
+          }
+        } catch (err) {
+          this.logger.error(`Tool ${name} failed: ${(err as Error).message}`);
+          result = { error: 'Internal error processing request' };
+        }
 
-      case 'createBooking':
-        return await this.createBooking(parameters);
+        return {
+          toolCallId: id,
+          result: JSON.stringify(result), // Vapi expects string result
+        };
+      }),
+    );
 
-      default:
-        this.logger.warn(`Unknown function: ${name}`);
-        return { error: 'Unknown function' };
-    }
+    return { results };
   }
 
   // ── Function 1: Get services for the org
@@ -92,15 +114,13 @@ export class VapiService {
     // Format for the AI to read naturally
     // AI will say: "We offer Haircut for $35, takes 30 minutes..."
     return {
-      result: {
-        services: org.services.map((s) => ({
-          id: s.id,
-          name: s.name,
-          duration: `${s.durationMins} minutes`,
-          price: s.price,
-          description: s.description || '',
-        })),
-      },
+      services: org.services.map((s) => ({
+        id: s.id,
+        name: s.name,
+        duration: `${s.durationMins} minutes`,
+        price: s.price,
+        description: s.description || '',
+      })),
     };
   }
 
@@ -142,7 +162,8 @@ export class VapiService {
 
     if (!hours || !hours.isOpen) {
       return {
-        result: { slots: [], message: 'Business is closed on this day' },
+        slots: [],
+        message: 'Business is closed on this day',
       };
     }
 
@@ -222,13 +243,11 @@ export class VapiService {
 
     // Return formatted for the AI to read
     return {
-      result: {
-        slots: finalSlots,
-        message:
-          finalSlots.length > 0
-            ? `Available times: ${finalSlots.join(', ')}`
-            : 'No available slots for this date',
-      },
+      slots: finalSlots,
+      message:
+        finalSlots.length > 0
+          ? `Available times: ${finalSlots.join(', ')}`
+          : 'No available slots for this date',
     };
   }
 
@@ -340,11 +359,9 @@ export class VapiService {
 
     // Return message for AI to read to customer
     return {
-      result: {
-        success: true,
-        bookingId: booking.id,
-        message: `Booking confirmed! ${params.customerName} is booked for ${service.name} on ${startAt.toLocaleDateString()} at ${startAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`,
-      },
+      success: true,
+      bookingId: booking.id,
+      message: `Booking confirmed! ${params.customerName} is booked for ${service.name} on ${startAt.toLocaleDateString()} at ${startAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`,
     };
   }
 

@@ -29,6 +29,13 @@ export class BillingController {
     return await this.billingService.getStatus(user);
   }
 
+  // GET /api/billing/usage
+  @Get('usage')
+  @UseGuards(ClerkAuthGurad, OrgGuard)
+  async getUsage(@CurrentUser() user: AuthenticatedUser) {
+    return await this.billingService.getUsage(user);
+  }
+
   // POST /api/billing/subscribe
   @Post('subscribe')
   @UseGuards(ClerkAuthGurad, OrgGuard)

@@ -10,6 +10,11 @@ import { EmailService } from '../email/email.service.js';
 import { AuthenticatedUser } from '../common/types/index.js';
 import { SubscribeDto } from './billing.dto.js';
 import Stripe from 'stripe';
+import {
+  TIER_LIMITS,
+  UNLIMITED,
+} from '../common/constants/tier-limits.constant.js';
+import { startOfMonth } from 'date-fns';
 
 @Injectable()
 export class BillingService {
@@ -33,6 +38,68 @@ export class BillingService {
       BUSINESS_yearly: this.config.get<string>(
         'STRIPE_BUSINESS_YEARLY_PRICE_ID',
       )!,
+    };
+  }
+
+  // ── GET /api/billing/usage ──────────────────────────
+  async getUsage(user: AuthenticatedUser) {
+    const orgId = user.orgId!;
+    const planTier = user.org!.planTier;
+    const limits = TIER_LIMITS[planTier];
+
+    const [activeStaff, pendingInvites, activeServices, bookingsThisMonth] =
+      await Promise.all([
+        this.prisma.db.user.count({
+          where: { orgId, status: 'ACTIVE' },
+        }),
+
+        this.prisma.db.staffInvitation.count({
+          where: { orgId, status: { in: ['PENDING', 'RESENT'] } },
+        }),
+
+        this.prisma.db.service.count({
+          where: { orgId, isDeleted: false },
+        }),
+
+        this.prisma.db.booking.count({
+          where: {
+            orgId,
+            createdAt: { gte: startOfMonth(new Date()) },
+          },
+        }),
+      ]);
+
+    const staffUsed = activeStaff + pendingInvites;
+
+    // Helper: serialize Infinity → null (JSON-safe)
+    const formatLimit = (cap: number) => (cap === UNLIMITED ? null : cap);
+
+    // Helper: atCap is false when cap is unlimited
+    const isAtCap = (used: number, cap: number) =>
+      cap !== UNLIMITED && used >= cap;
+
+    return {
+      planTier,
+      staff: {
+        used: staffUsed,
+        limit: formatLimit(limits.staff),
+        atCap: isAtCap(staffUsed, limits.staff),
+      },
+      services: {
+        used: activeServices,
+        limit: formatLimit(limits.services),
+        atCap: isAtCap(activeServices, limits.services),
+      },
+      bookings: {
+        used: bookingsThisMonth,
+        limit: formatLimit(limits.bookingsPerMonth),
+        atCap: isAtCap(bookingsThisMonth, limits.bookingsPerMonth),
+      },
+      voiceMinutes: {
+        used: 0, // TODO Phase 14: wire actual Vapi minute tracking
+        limit: formatLimit(limits.voiceMinutesPerMonth),
+        atCap: isAtCap(0, limits.voiceMinutesPerMonth),
+      },
     };
   }
 
@@ -308,37 +375,19 @@ export class BillingService {
     this.logger.log(`Plan activated: ${orgId} → ${planTier}`);
   }
 
-  // ── Subscription updated (plan change) ──────────────
+  // ── Subscription updated (plan change / cancellation toggle) ──────────────
+  // Only sync the subscriptionId here. planTier is updated in handlePaymentSucceeded
+  // so we never grant access before payment is confirmed.
   private async handleSubscriptionUpdated(subscription: Stripe.Subscription) {
     const orgId = subscription.metadata.orgId;
     if (!orgId) return;
 
-    // Get the current price to determine plan tier
-    const priceId = subscription.items.data[0]?.price.id;
-
-    let planTier = 'STARTER';
-    if (
-      priceId === this.priceMap['PRO_monthly'] ||
-      priceId === this.priceMap['PRO_yearly']
-    ) {
-      planTier = 'PRO';
-    }
-    if (
-      priceId === this.priceMap['BUSINESS_monthly'] ||
-      priceId === this.priceMap['BUSINESS_yearly']
-    ) {
-      planTier = 'BUSINESS';
-    }
-
     await this.prisma.db.organisation.update({
       where: { id: orgId },
-      data: {
-        planTier: planTier as any,
-        stripeSubscriptionId: subscription.id,
-      },
+      data: { stripeSubscriptionId: subscription.id },
     });
 
-    this.logger.log(`Subscription updated: ${orgId} → ${planTier}`);
+    this.logger.log(`Subscription record synced: ${orgId}`);
   }
 
   // ── Payment failed — notify org owner ──────────────

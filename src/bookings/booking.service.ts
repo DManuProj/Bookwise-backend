@@ -18,6 +18,12 @@ import { AuditService } from '../audit/audit.service.js';
 import { EmailService } from '../email/email.service.js';
 import { NotificationService } from '../notifications/notifications.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import {
+  checkTierCap,
+  TIER_LIMITS,
+  UNLIMITED,
+} from '../common/constants/tier-limits.constant.js';
+import { startOfMonth } from 'date-fns';
 
 @Injectable()
 export class BookingService {
@@ -135,7 +141,7 @@ export class BookingService {
       where: { id: serviceId },
     });
 
-    if (!service || service.orgId !== user.orgId) {
+    if (!service || service.orgId !== user.orgId || service.isDeleted) {
       throw new NotFoundException('Service not found');
     }
 
@@ -240,12 +246,25 @@ export class BookingService {
 
   //POST create booking
   async createBooking(user: AuthenticatedUser, data: CreateBookingDto) {
+    // Tier cap check
+    const cap = TIER_LIMITS[user.org!.planTier].bookingsPerMonth;
+
+    if (cap !== UNLIMITED) {
+      const bookingsThisMonth = await this.prisma.db.booking.count({
+        where: {
+          orgId: user.orgId!,
+          createdAt: { gte: startOfMonth(new Date()) },
+        },
+      });
+
+      checkTierCap(user.org!.planTier, 'bookingsPerMonth', bookingsThisMonth);
+    }
     //  Service exists + belongs to org
     const service = await this.prisma.db.service.findUnique({
       where: { id: data.serviceId },
     });
 
-    if (!service || service.orgId !== user.orgId) {
+    if (!service || service.orgId !== user.orgId || service.isDeleted) {
       throw new NotFoundException('Service not found');
     }
 
@@ -296,28 +315,32 @@ export class BookingService {
       );
     }
 
-    // staff overlap check
-    const conflict = await this.prisma.db.booking.findFirst({
-      where: {
-        userId: data.staffId,
-        orgId: user.orgId!,
-        status: { notIn: ['CANCELLED', 'NO_SHOW'] },
-        startAt: { lt: endAt },
-        endAt: { gt: data.startAt },
-      },
-    });
+    const buffer = service.buffer ?? user.org?.bufferMins ?? 0;
+    const bufferedEnd = new Date(endAt.getTime() + buffer * 60000);
 
-    if (conflict) {
-      this.logger.log(
-        `Booking conflict: staff ${data.staffId} already booked ${conflict.id}`,
-      );
-      throw new ConflictException(
-        'This staff member already has a booking that overlaps this time.',
-      );
-    }
-
-    // Transaction: customer resolution + booking creation ──
+    // Transaction: customer resolution + conflict check + booking creation ──
     const booking = await this.prisma.db.$transaction(async (tx) => {
+      // Conflict check inside transaction — prevents race condition where two
+      // simultaneous requests both pass the check and create overlapping bookings
+      const conflict = await tx.booking.findFirst({
+        where: {
+          userId: data.staffId,
+          orgId: user.orgId!,
+          status: { notIn: ['CANCELLED', 'NO_SHOW'] },
+          startAt: { lt: bufferedEnd },
+          endAt: { gt: data.startAt },
+        },
+      });
+
+      if (conflict) {
+        this.logger.log(
+          `Booking conflict: staff ${data.staffId} already booked ${conflict.id}`,
+        );
+        throw new ConflictException(
+          'This staff member already has a booking that overlaps this time.',
+        );
+      }
+
       let customerId: string;
 
       if (data.customerId) {
@@ -467,7 +490,7 @@ export class BookingService {
       const newService = await this.prisma.db.service.findUnique({
         where: { id: data.serviceId },
       });
-      if (!newService || newService.orgId !== user.orgId) {
+      if (!newService || newService.orgId !== user.orgId || newService.isDeleted) {
         throw new NotFoundException('Service not found');
       }
       service = newService;
@@ -522,13 +545,16 @@ export class BookingService {
     }
 
     // Overlap check — EXCLUDE this booking from search
+    const buffer = service.buffer ?? user.org?.bufferMins ?? 0;
+    const bufferedEnd = new Date(endAt.getTime() + buffer * 60000);
+
     const conflict = await this.prisma.db.booking.findFirst({
       where: {
         id: { not: id }, //  ignore self
         userId: staffId,
         orgId: user.orgId!,
         status: { notIn: ['CANCELLED', 'NO_SHOW'] },
-        startAt: { lt: endAt },
+        startAt: { lt: bufferedEnd },
         endAt: { gt: startAt },
       },
     });

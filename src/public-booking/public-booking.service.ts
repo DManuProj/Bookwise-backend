@@ -1,7 +1,17 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { EmailService } from '../email/email.service.js';
 import { NotificationService } from '../notifications/notifications.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import {
+  TIER_LIMITS,
+  UNLIMITED,
+} from '../common/constants/tier-limits.constant.js';
+import { startOfMonth } from 'date-fns';
 
 @Injectable()
 export class PublicBoookingService {
@@ -19,7 +29,7 @@ export class PublicBoookingService {
       where: { slug },
       include: {
         services: {
-          where: { isActive: true },
+          where: { isActive: true, isDeleted: false },
           orderBy: { name: 'asc' },
         },
         users: {
@@ -75,7 +85,7 @@ export class PublicBoookingService {
       where: { id: serviceId },
     });
 
-    if (!service || service.orgId !== org.id) {
+    if (!service || service.orgId !== org.id || service.isDeleted) {
       throw new NotFoundException('Service not found');
     }
 
@@ -191,8 +201,24 @@ export class PublicBoookingService {
       where: { id: data.serviceId },
     });
 
-    if (!service || service.orgId !== org.id) {
+    if (!service || service.orgId !== org.id || service.isDeleted) {
       throw new NotFoundException('Service not found');
+    }
+
+    // Tier cap — public bookings count against the org's monthly limit
+    const cap = TIER_LIMITS[org.planTier].bookingsPerMonth;
+    if (cap !== UNLIMITED) {
+      const bookingsThisMonth = await this.prisma.db.booking.count({
+        where: {
+          orgId: org.id,
+          createdAt: { gte: startOfMonth(new Date()) },
+        },
+      });
+      if (bookingsThisMonth >= cap) {
+        throw new BadRequestException(
+          'This business is not accepting online bookings at the moment. Please contact them directly to schedule.',
+        );
+      }
     }
 
     const booking = await this.prisma.db.$transaction(async (tx) => {

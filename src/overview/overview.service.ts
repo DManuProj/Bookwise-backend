@@ -57,7 +57,7 @@ export class OverviewService {
       // Services grouped by isActive — feeds stats.services { active, inactive }
       this.prisma.db.service.groupBy({
         by: ['isActive'],
-        where: { orgId },
+        where: { orgId, isDeleted: false },
         _count: { _all: true },
       }),
 
@@ -97,7 +97,7 @@ export class OverviewService {
 
       // Top 5 services by booking count (all-time) — feeds the bar chart
       this.prisma.db.service.findMany({
-        where: { orgId },
+        where: { orgId, isDeleted: false },
         select: {
           id: true,
           name: true,

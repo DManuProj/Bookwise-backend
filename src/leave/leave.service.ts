@@ -65,6 +65,21 @@ export class LeaveService {
       throw new BadRequestException('End date must be after start date');
     }
 
+    const overlapping = await this.prisma.db.staffLeave.findFirst({
+      where: {
+        userId: user.id,
+        status: { notIn: ['CANCELLED', 'REJECTED'] },
+        startDate: { lt: dto.endDate },
+        endDate: { gt: dto.startDate },
+      },
+    });
+
+    if (overlapping) {
+      throw new BadRequestException(
+        'You already have a leave request that overlaps this period',
+      );
+    }
+
     const leave = await this.prisma.db.staffLeave.create({
       data: {
         startDate: dto.startDate,

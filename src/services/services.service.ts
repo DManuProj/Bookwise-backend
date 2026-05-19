@@ -9,6 +9,7 @@ import { CreateServiceDto, UpdateServiceDto } from './services.dto.js';
 import { AuditService } from '../audit/audit.service.js';
 import { NotificationService } from '../notifications/notifications.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { checkTierCap } from '../common/constants/tier-limits.constant.js';
 
 @Injectable()
 export class ServicesService {
@@ -23,7 +24,7 @@ export class ServicesService {
   // GET — fetch the organisation's services
   async getAllServices(user: AuthenticatedUser) {
     const services = await this.prisma.db.service.findMany({
-      where: { orgId: user.orgId! },
+      where: { orgId: user.orgId!, isDeleted: false },
     });
 
     this.logger.log(`get all serviece for ${user.org?.name} `);
@@ -33,6 +34,12 @@ export class ServicesService {
 
   // POST — create organisation's services
   async createService(user: AuthenticatedUser, data: CreateServiceDto) {
+    const currentCount = await this.prisma.db.service.count({
+      where: { orgId: user.orgId!, isDeleted: false },
+    });
+
+    checkTierCap(user.org!.planTier, 'services', currentCount);
+
     const service = await this.prisma.db.service.create({
       data: {
         ...data,
@@ -117,8 +124,9 @@ export class ServicesService {
     if (existing.orgId !== user.orgId)
       throw new ForbiddenException('Not your service');
 
-    await this.prisma.db.service.delete({
+    await this.prisma.db.service.update({
       where: { id },
+      data: { isDeleted: true },
     });
 
     await this.notificationService.notifyByRoles(

@@ -13,6 +13,16 @@ export class MeService {
 
   // GET — return current user profile
   async getMe(user: AuthenticatedUser) {
+    let org: object | null = null;
+    if (user.org) {
+      const {
+        stripeCustomerId: _sc,
+        stripeSubscriptionId: _ss,
+        ...safeOrg
+      } = user.org;
+      org = safeOrg;
+    }
+
     return {
       id: user.id,
       email: user.email,
@@ -25,7 +35,7 @@ export class MeService {
       profileComplete: user.profileComplete,
       onboardingComplete: user.onboardingComplete,
       orgId: user.orgId,
-      org: user.org,
+      org,
     };
   }
 

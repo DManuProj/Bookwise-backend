@@ -12,6 +12,7 @@ import { AuditService } from '../audit/audit.service.js';
 import { EmailService } from '../email/email.service.js';
 import { NotificationService } from '../notifications/notifications.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { checkTierCap } from '../common/constants/tier-limits.constant.js';
 
 @Injectable()
 export class StaffService {
@@ -47,6 +48,17 @@ export class StaffService {
 
   // POST — invite a new staff member
   async inviteStaff(user: AuthenticatedUser, data: StaffDto) {
+    const [activeStaff, pendingInvites] = await Promise.all([
+      this.prisma.db.user.count({
+        where: { orgId: user.orgId!, status: 'ACTIVE' },
+      }),
+      this.prisma.db.staffInvitation.count({
+        where: { orgId: user.orgId!, status: { in: ['PENDING', 'RESENT'] } },
+      }),
+    ]);
+
+    checkTierCap(user.org!.planTier, 'staff', activeStaff + pendingInvites);
+
     // Check if this email already exists in THIS org
     const existingUser = await this.prisma.db.user.findFirst({
       where: { email: data.email, orgId: user.orgId! },

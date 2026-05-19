@@ -3,6 +3,7 @@ import { OnboardingDto } from './onboarding.dto.js';
 import { AuthenticatedUser } from '../common/types/index.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { EmailService } from '../email/email.service.js';
+import { TIER_LIMITS } from '../common/constants/tier-limits.constant.js';
 
 @Injectable()
 export class OnboardingService {
@@ -71,6 +72,14 @@ export class OnboardingService {
       const staffToInvite = data.staff.filter(
         (member) => member.email !== user.email,
       );
+
+      // Owner counts as 1 active staff; cap remaining slots for STARTER plan
+      const starterStaffCap = TIER_LIMITS['STARTER'].staff;
+      if (1 + staffToInvite.length > starterStaffCap) {
+        throw new BadRequestException(
+          `Starter plan allows ${starterStaffCap} staff (including yourself). Remove some invites to continue.`,
+        );
+      }
 
       const invites: {
         email: string;
