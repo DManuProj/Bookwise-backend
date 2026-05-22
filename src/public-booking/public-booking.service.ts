@@ -4,6 +4,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { AuditService } from '../audit/audit.service.js';
 import { EmailService } from '../email/email.service.js';
 import { NotificationService } from '../notifications/notifications.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -21,6 +22,7 @@ export class PublicBoookingService {
     private readonly prisma: PrismaService,
     private readonly emailService: EmailService,
     private readonly notificationService: NotificationService,
+    private readonly auditService: AuditService,
   ) {}
 
   //GET  /api/public/:slug
@@ -57,6 +59,8 @@ export class PublicBoookingService {
       description: org.description,
       phone: org.phone,
       address: org.address,
+      planTier: org.planTier,
+      voiceAiEnabled: org.voiceAiEnabled,
       services: org.services,
       staff: org.users,
       workingHours: org.workingHours,
@@ -295,6 +299,15 @@ export class PublicBoookingService {
       'BOOKING',
       booking.id,
     );
+
+    await this.auditService.log({
+      orgId: org.id,
+      actorName: data.customer.name,
+      action: 'BOOKING_CREATED',
+      entityType: 'Booking',
+      entityId: booking.id,
+      metadata: { source: 'MANUAL_CUSTOMER', serviceName: service.name },
+    });
 
     this.logger.log(`Public booking created: ${booking.id}`);
 

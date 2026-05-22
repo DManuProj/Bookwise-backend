@@ -163,8 +163,16 @@ export class StaffService {
       staff.id,
       staff.orgId!,
       `Role Change`,
-      `Your role  has been  change to ${data.role}`,
+      `Your role has been changed to ${data.role}`,
       'ROLE',
+    );
+
+    await this.notificationService.notifyByRoles(
+      user.orgId!,
+      ['OWNER'],
+      'Role Changed',
+      `${staff.firstName} ${staff.lastName}'s role has been changed to ${data.role}`,
+      'STAFF',
     );
 
     this.logger.log(`Role changed: ${updated.email} → ${updated.role}`);

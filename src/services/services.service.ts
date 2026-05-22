@@ -108,6 +108,16 @@ export class ServicesService {
       'SERVICE',
     );
 
+    await this.auditService.log({
+      orgId: user.orgId!,
+      userId: user.id,
+      actorName: `${user.firstName} ${user.lastName}`,
+      action: 'SERVICE_UPDATED',
+      entityType: 'Service',
+      entityId: updated.id,
+      metadata: { name: updated.name },
+    });
+
     this.logger.log(`Service updated: ${updated.name}`);
 
     return updated;
@@ -133,9 +143,19 @@ export class ServicesService {
       user.orgId!,
       ['OWNER', 'ADMIN', 'MEMBER'],
       `Service removed`,
-      `${existing.name}has been deleted from your organisation`,
+      `${existing.name} has been deleted from your organisation`,
       'SERVICE',
     );
+
+    await this.auditService.log({
+      orgId: user.orgId!,
+      userId: user.id,
+      actorName: `${user.firstName} ${user.lastName}`,
+      action: 'SERVICE_DELETED',
+      entityType: 'Service',
+      entityId: existing.id,
+      metadata: { name: existing.name },
+    });
 
     this.logger.log(`Service deleted: ${existing.name}`);
 

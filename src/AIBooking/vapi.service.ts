@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { AuditService } from '../audit/audit.service.js';
 import { EmailService } from '../email/email.service.js';
 import { NotificationService } from '../notifications/notifications.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -11,6 +12,7 @@ export class VapiService {
     private readonly prisma: PrismaService,
     private readonly emailService: EmailService,
     private readonly notificationService: NotificationService,
+    private readonly auditService: AuditService,
   ) {}
 
   // ── Main webhook handler
@@ -366,6 +368,15 @@ export class VapiService {
       'BOOKING',
       booking.id,
     );
+
+    await this.auditService.log({
+      orgId: org.id,
+      actorName: params.customerName,
+      action: 'BOOKING_CREATED',
+      entityType: 'Booking',
+      entityId: booking.id,
+      metadata: { source: 'VOICE_AI', serviceName: service.name },
+    });
 
     this.logger.log(`Voice AI booking created: ${booking.id}`);
 
