@@ -278,6 +278,33 @@ export class VapiService {
     },
     callId?: string,
   ) {
+    // ── Validate required customer fields
+    if (!params.customerName?.trim()) {
+      return {
+        error:
+          'Missing customer name. Please ask the customer for their name before booking.',
+      };
+    }
+    if (!params.customerEmail?.trim()) {
+      return {
+        error:
+          'Missing customer email. Please ask the customer for their email before booking.',
+      };
+    }
+    if (!params.customerPhone?.trim()) {
+      return {
+        error:
+          'Missing customer phone. Please ask the customer for their phone number before booking.',
+      };
+    }
+
+    // Basic email sanity check (covers the obvious garbage)
+    if (!params.customerEmail.includes('@')) {
+      return {
+        error:
+          'Customer email looks invalid. Please confirm the email with the customer.',
+      };
+    }
     const org = await this.prisma.db.organisation.findUnique({
       where: { slug: params.slug },
     });
