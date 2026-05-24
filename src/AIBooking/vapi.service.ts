@@ -1,8 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { startOfMonth } from 'date-fns';
 import { AuditService } from '../audit/audit.service.js';
 import { EmailService } from '../email/email.service.js';
 import { NotificationService } from '../notifications/notifications.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import {
+  TIER_LIMITS,
+  UNLIMITED,
+} from '../common/constants/tier-limits.constant.js';
 
 @Injectable()
 export class VapiService {
@@ -72,6 +77,9 @@ export class VapiService {
             case 'createBooking':
               result = await this.createBooking(args, callId);
               break;
+            case 'getStaff':
+              result = await this.getStaff(args);
+              break;
             default:
               this.logger.warn(`Unknown tool: ${name}`);
               result = { error: 'Unknown tool' };
@@ -115,7 +123,7 @@ export class VapiService {
       return { error: 'Business not found' };
     }
 
-    if (org.planTier === 'STARTER') {
+    if (org.planTier === 'STARTER' || !org.voiceAiEnabled) {
       return {
         error:
           'Voice booking is not available for this business. Please book manually instead.',
@@ -313,6 +321,29 @@ export class VapiService {
       return { error: 'Business not found' };
     }
 
+    if (org.planTier === 'STARTER' || !org.voiceAiEnabled) {
+      return {
+        error:
+          'Voice booking is not available for this business. Please book manually instead.',
+      };
+    }
+
+    const cap = TIER_LIMITS[org.planTier].bookingsPerMonth;
+    if (cap !== UNLIMITED) {
+      const bookingsThisMonth = await this.prisma.db.booking.count({
+        where: {
+          orgId: org.id,
+          createdAt: { gte: startOfMonth(new Date()) },
+        },
+      });
+      if (bookingsThisMonth >= cap) {
+        return {
+          error:
+            'This business is not accepting online bookings at the moment. Please contact them directly to schedule.',
+        };
+      }
+    }
+
     const service = await this.prisma.db.service.findUnique({
       where: { id: params.serviceId },
     });
@@ -329,50 +360,72 @@ export class VapiService {
     const endAt = new Date(startAt);
     endAt.setMinutes(endAt.getMinutes() + service.durationMins);
 
-    const booking = await this.prisma.db.$transaction(async (tx) => {
-      // Find or create customer (same pattern as public booking)
-      let customer = await tx.customer.findFirst({
-        where: { email: params.customerEmail, orgId: org.id },
-      });
-
-      if (customer) {
-        customer = await tx.customer.update({
-          where: { id: customer.id },
-          data: {
-            name: params.customerName,
-            phone: params.customerPhone,
+    let booking: any;
+    try {
+      booking = await this.prisma.db.$transaction(async (tx) => {
+        const conflict = await tx.booking.findFirst({
+          where: {
+            orgId: org.id,
+            status: { in: ['PENDING', 'CONFIRMED'] },
+            startAt: { lt: endAt },
+            endAt: { gt: startAt },
+            ...(params.staffId ? { userId: params.staffId } : {}),
           },
         });
-      } else {
-        customer = await tx.customer.create({
+        if (conflict) throw new Error('SLOT_TAKEN');
+
+        // Find or create customer (same pattern as public booking)
+        let customer = await tx.customer.findFirst({
+          where: { email: params.customerEmail, orgId: org.id },
+        });
+
+        if (customer) {
+          customer = await tx.customer.update({
+            where: { id: customer.id },
+            data: {
+              name: params.customerName,
+              phone: params.customerPhone,
+            },
+          });
+        } else {
+          customer = await tx.customer.create({
+            data: {
+              name: params.customerName,
+              email: params.customerEmail,
+              phone: params.customerPhone,
+              orgId: org.id,
+            },
+          });
+        }
+
+        // Create booking with VOICE_AI source
+        const newBooking = await tx.booking.create({
           data: {
-            name: params.customerName,
-            email: params.customerEmail,
-            phone: params.customerPhone,
+            startAt,
+            endAt,
+            source: 'VOICE_AI',
+            status: 'PENDING',
+            note: params.note || null,
+            voiceCallId: callId || null,
+            customerId: customer.id,
+            serviceId: params.serviceId,
+            userId: params.staffId || null,
             orgId: org.id,
           },
+          include: { user: true },
         });
-      }
 
-      // Create booking with VOICE_AI source
-      const newBooking = await tx.booking.create({
-        data: {
-          startAt,
-          endAt,
-          source: 'VOICE_AI',
-          status: 'PENDING',
-          note: params.note || null,
-          voiceCallId: callId || null,
-          customerId: customer.id,
-          serviceId: params.serviceId,
-          userId: params.staffId || null,
-          orgId: org.id,
-        },
-        include: { user: true },
+        return newBooking;
       });
-
-      return newBooking;
-    });
+    } catch (err) {
+      if ((err as Error).message === 'SLOT_TAKEN') {
+        return {
+          error:
+            'This time slot is no longer available. Please select another time.',
+        };
+      }
+      throw err;
+    }
 
     // Send confirmation email to customer
     await this.emailService.sendBookingConfirmationEmail(
@@ -415,6 +468,89 @@ export class VapiService {
     };
   }
 
+  // ── Function 4: Get staff available at a specific date+time
+  // AI calls this only when customer expresses staff preference
+  // or asks who's free — NOT for every booking
+  private async getStaff(params: {
+    slug: string;
+    date: string;
+    time: string;
+    serviceId: string;
+  }) {
+    // ── Get org + active staff
+    const org = await this.prisma.db.organisation.findUnique({
+      where: { slug: params.slug },
+      include: {
+        users: {
+          where: { status: 'ACTIVE' },
+          select: { id: true, firstName: true, lastName: true },
+        },
+      },
+    });
+
+    if (!org || org.isDeleted) {
+      return { error: 'Business not found' };
+    }
+
+    if (org.planTier === 'STARTER' || !org.voiceAiEnabled) {
+      return { error: 'Voice booking is not available for this business.' };
+    }
+
+    // ── Get service to know booking duration
+    const service = await this.prisma.db.service.findUnique({
+      where: { id: params.serviceId },
+    });
+
+    if (!service || service.orgId !== org.id || service.isDeleted) {
+      return { error: 'Service not found' };
+    }
+
+    // ── Calculate the booking window
+    const [hour, minute] = params.time.split(':').map(Number);
+    const startAt = new Date(params.date);
+    startAt.setHours(hour, minute, 0, 0);
+
+    const endAt = new Date(startAt);
+    endAt.setMinutes(endAt.getMinutes() + service.durationMins);
+
+    // ── Find staff with conflicting bookings at this window (with buffer)
+    const buffer = service.buffer || org.bufferMins || 0;
+    const bufferedStart = new Date(startAt.getTime() - buffer * 60000);
+    const bufferedEnd = new Date(endAt.getTime() + buffer * 60000);
+
+    const conflictingBookings = await this.prisma.db.booking.findMany({
+      where: {
+        orgId: org.id,
+        status: { in: ['PENDING', 'CONFIRMED'] },
+        userId: { not: null },
+        startAt: { lt: bufferedEnd },
+        endAt: { gt: bufferedStart },
+      },
+      select: { userId: true },
+    });
+
+    const busyStaffIds = new Set(
+      conflictingBookings.map((b) => b.userId).filter(Boolean),
+    );
+
+    // ── Filter roster to only free staff
+    const availableStaff = org.users
+      .filter((u) => !busyStaffIds.has(u.id))
+      .map((u) => ({
+        id: u.id,
+        name: `${u.firstName} ${u.lastName}`,
+      }));
+
+    return {
+      available: availableStaff,
+      busyCount: org.users.length - availableStaff.length,
+      message:
+        availableStaff.length > 0
+          ? `${availableStaff.length} staff available at this time`
+          : 'No staff available at this time',
+    };
+  }
+
   // ── End of call report
   // Vapi sends this AFTER the conversation ends.
   // Contains the full transcript and call duration.
@@ -423,7 +559,7 @@ export class VapiService {
   private async handleEndOfCallReport(message: any) {
     // Vapi payload shape (verify these field paths against actual logs later)
     const callId = message.call?.id;
-    const durationSeconds = message.durationSeconds || 0;
+    const durationSeconds = message.durationSeconds ?? null;
     const transcript = message.transcript;
     const endedReason = message.endedReason;
 
@@ -463,7 +599,7 @@ export class VapiService {
       await this.prisma.db.voiceUsage.create({
         data: {
           callId,
-          duration: durationSeconds,
+          duration: durationSeconds ?? 0,
           orgId: org.id,
         },
       });

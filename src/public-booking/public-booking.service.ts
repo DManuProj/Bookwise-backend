@@ -225,6 +225,21 @@ export class PublicBoookingService {
     }
 
     const booking = await this.prisma.db.$transaction(async (tx) => {
+      const conflict = await tx.booking.findFirst({
+        where: {
+          orgId: org.id,
+          status: { in: ['PENDING', 'CONFIRMED'] },
+          startAt: { lt: data.endAt },
+          endAt: { gt: data.startAt },
+          ...(data.staffId ? { userId: data.staffId } : {}),
+        },
+      });
+      if (conflict) {
+        throw new BadRequestException(
+          'This time slot is no longer available. Please select another time.',
+        );
+      }
+
       // Find or create customer
       let customer = await tx.customer.findFirst({
         where: {
