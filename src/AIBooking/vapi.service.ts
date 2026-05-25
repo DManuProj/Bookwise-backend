@@ -112,7 +112,7 @@ export class VapiService {
     }
 
     const org = await this.prisma.db.organisation.findUnique({
-      where: { slug: params.slug },
+      where: { slug },
       include: {
         services: {
           where: { isActive: true },
@@ -137,8 +137,7 @@ export class VapiService {
           'Voice booking is not available for this business. Please book manually instead.',
       };
     }
-    // Format for the AI to read naturally
-    // AI will say: "We offer Haircut for $35, takes 30 minutes..."
+
     return {
       services: org.services.map((s) => ({
         id: s.id,
@@ -162,6 +161,7 @@ export class VapiService {
     const slug = params.slug?.trim();
     const date = params.date?.trim();
     const serviceId = params.serviceId?.trim();
+    const staffId = params.staffId?.trim();
 
     if (!slug) {
       return {
@@ -179,9 +179,10 @@ export class VapiService {
           'Service not found or not selected yet. Ask the customer which service they want to book BEFORE checking time slots.',
       };
     }
+
     // Step 1: Get org and working hours
     const org = await this.prisma.db.organisation.findUnique({
-      where: { slug: params.slug },
+      where: { slug },
       include: { workingHours: true },
     });
 
@@ -191,7 +192,7 @@ export class VapiService {
 
     // Step 2: Get the service (need duration for slot size)
     const service = await this.prisma.db.service.findUnique({
-      where: { id: params.serviceId },
+      where: { id: serviceId },
     });
 
     if (!service || service.orgId !== org.id) {
@@ -199,11 +200,10 @@ export class VapiService {
     }
 
     // Step 3: Which day of the week is this date?
-    const bookingDate = new Date(params.date);
+    const bookingDate = new Date(date);
     const dayNames = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
     const dayOfWeek = dayNames[bookingDate.getDay()];
 
-    // Find working hours for this day
     const hours = org.workingHours.find((h) => h.day === dayOfWeek);
 
     if (!hours || !hours.isOpen) {
@@ -214,10 +214,9 @@ export class VapiService {
     }
 
     // Step 4: Get existing bookings for that day
-    // Only PENDING and CONFIRMED block slots
-    const dayStart = new Date(params.date);
+    const dayStart = new Date(date);
     dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = new Date(params.date);
+    const dayEnd = new Date(date);
     dayEnd.setHours(23, 59, 59, 999);
 
     const bookingWhere: any = {
@@ -226,8 +225,8 @@ export class VapiService {
       startAt: { gte: dayStart, lte: dayEnd },
     };
 
-    if (params.staffId) {
-      bookingWhere.userId = params.staffId;
+    if (staffId) {
+      bookingWhere.userId = staffId;
     }
 
     const existingBookings = await this.prisma.db.booking.findMany({
@@ -287,7 +286,6 @@ export class VapiService {
       });
     }
 
-    // Return formatted for the AI to read
     return {
       slots: finalSlots,
       message:
@@ -314,35 +312,69 @@ export class VapiService {
     },
     callId?: string,
   ) {
+    const slug = params.slug?.trim();
+    const date = params.date?.trim();
+    const time = params.time?.trim();
+    const serviceId = params.serviceId?.trim();
+    const staffId = params.staffId?.trim();
+    const customerName = params.customerName?.trim();
+    const customerEmail = params.customerEmail?.trim();
+    const customerPhone = params.customerPhone?.trim();
+    const note = params.note?.trim();
+
+    // ── Defensive validation
+    if (!slug) {
+      return {
+        error: 'Missing slug parameter. Always pass slug in tool calls.',
+      };
+    }
+    if (!date) {
+      return {
+        error: 'Missing date parameter. Ask the customer which day they want.',
+      };
+    }
+    if (!time) {
+      return {
+        error: 'Missing time parameter. Ask the customer what time they want.',
+      };
+    }
+    if (!serviceId) {
+      return {
+        error:
+          'Service not found or not selected yet. Ask the customer which service they want to book first.',
+      };
+    }
+
     // ── Validate required customer fields
-    if (!params.customerName?.trim()) {
+    if (!customerName) {
       return {
         error:
           'Missing customer name. Please ask the customer for their name before booking.',
       };
     }
-    if (!params.customerEmail?.trim()) {
+    if (!customerEmail) {
       return {
         error:
           'Missing customer email. Please ask the customer for their email before booking.',
       };
     }
-    if (!params.customerPhone?.trim()) {
+    if (!customerPhone) {
       return {
         error:
           'Missing customer phone. Please ask the customer for their phone number before booking.',
       };
     }
 
-    // Basic email sanity check (covers the obvious garbage)
-    if (!params.customerEmail.includes('@')) {
+    // Basic email sanity check
+    if (!customerEmail.includes('@')) {
       return {
         error:
           'Customer email looks invalid. Please confirm the email with the customer.',
       };
     }
+
     const org = await this.prisma.db.organisation.findUnique({
-      where: { slug: params.slug },
+      where: { slug },
     });
 
     if (!org || org.isDeleted) {
@@ -373,7 +405,7 @@ export class VapiService {
     }
 
     const service = await this.prisma.db.service.findUnique({
-      where: { id: params.serviceId },
+      where: { id: serviceId },
     });
 
     if (!service || service.orgId !== org.id) {
@@ -381,8 +413,8 @@ export class VapiService {
     }
 
     // Calculate start and end times from "10:00" + duration
-    const [hour, minute] = params.time.split(':').map(Number);
-    const startAt = new Date(params.date);
+    const [hour, minute] = time.split(':').map(Number);
+    const startAt = new Date(date);
     startAt.setHours(hour, minute, 0, 0);
 
     const endAt = new Date(startAt);
@@ -397,30 +429,30 @@ export class VapiService {
             status: { in: ['PENDING', 'CONFIRMED'] },
             startAt: { lt: endAt },
             endAt: { gt: startAt },
-            ...(params.staffId ? { userId: params.staffId } : {}),
+            ...(staffId ? { userId: staffId } : {}),
           },
         });
         if (conflict) throw new Error('SLOT_TAKEN');
 
-        // Find or create customer (same pattern as public booking)
+        // Find or create customer
         let customer = await tx.customer.findFirst({
-          where: { email: params.customerEmail, orgId: org.id },
+          where: { email: customerEmail, orgId: org.id },
         });
 
         if (customer) {
           customer = await tx.customer.update({
             where: { id: customer.id },
             data: {
-              name: params.customerName,
-              phone: params.customerPhone,
+              name: customerName,
+              phone: customerPhone,
             },
           });
         } else {
           customer = await tx.customer.create({
             data: {
-              name: params.customerName,
-              email: params.customerEmail,
-              phone: params.customerPhone,
+              name: customerName,
+              email: customerEmail,
+              phone: customerPhone,
               orgId: org.id,
             },
           });
@@ -433,11 +465,11 @@ export class VapiService {
             endAt,
             source: 'VOICE_AI',
             status: 'PENDING',
-            note: params.note || null,
+            note: note || null,
             voiceCallId: callId || null,
             customerId: customer.id,
-            serviceId: params.serviceId,
-            userId: params.staffId || null,
+            serviceId,
+            userId: staffId || null,
             orgId: org.id,
           },
           include: { user: true },
@@ -455,10 +487,10 @@ export class VapiService {
       throw err;
     }
 
-    // Send confirmation email to customer
+    // Send confirmation email
     await this.emailService.sendBookingConfirmationEmail(
-      params.customerEmail,
-      params.customerName,
+      customerEmail,
+      customerName,
       org.name,
       service.name,
       booking.user
@@ -471,7 +503,7 @@ export class VapiService {
     await this.notificationService.notifyOrgAdmins(
       org.id,
       'New Voice Booking',
-      `${params.customerName} booked ${service.name} via AI`,
+      `${customerName} booked ${service.name} via AI`,
       'BOOKING',
       'BOOKING',
       booking.id,
@@ -479,7 +511,7 @@ export class VapiService {
 
     await this.auditService.log({
       orgId: org.id,
-      actorName: params.customerName,
+      actorName: customerName,
       action: 'BOOKING_CREATED',
       entityType: 'Booking',
       entityId: booking.id,
@@ -488,11 +520,10 @@ export class VapiService {
 
     this.logger.log(`Voice AI booking created: ${booking.id}`);
 
-    // Return message for AI to read to customer
     return {
       success: true,
       bookingId: booking.id,
-      message: `Booking confirmed! ${params.customerName} is booked for ${service.name} on ${startAt.toLocaleDateString()} at ${startAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`,
+      message: `Booking confirmed! ${customerName} is booked for ${service.name} on ${startAt.toLocaleDateString()} at ${startAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`,
     };
   }
 
@@ -616,14 +647,11 @@ export class VapiService {
   // We find the booking created during this call
   // and save the transcript for reporting.
   private async handleEndOfCallReport(message: any) {
-    // Vapi payload shape (verify these field paths against actual logs later)
     const callId = message.call?.id;
     const durationSeconds = message.durationSeconds ?? null;
     const transcript = message.transcript;
     const endedReason = message.endedReason;
 
-    // The slug was passed when the call started (assistantOverrides.variableValues)
-    // Vapi echoes it back in the call object
     const slug = message.call?.assistantOverrides?.variableValues?.slug;
 
     this.logger.log(
@@ -642,7 +670,6 @@ export class VapiService {
       return;
     }
 
-    // 1. Find the org so we have orgId
     const org = await this.prisma.db.organisation.findUnique({
       where: { slug },
       select: { id: true },
@@ -653,7 +680,6 @@ export class VapiService {
       return;
     }
 
-    // 2. Insert VoiceUsage — catch duplicate-callId errors (Vapi retry)
     try {
       await this.prisma.db.voiceUsage.create({
         data: {
@@ -666,7 +692,6 @@ export class VapiService {
         `Voice usage tracked: org=${org.id} callId=${callId} duration=${durationSeconds}s`,
       );
     } catch (err) {
-      // P2002 = Prisma unique constraint violation — Vapi retried the webhook
       if ((err as any).code === 'P2002') {
         this.logger.log(
           `Duplicate webhook for callId ${callId} — already tracked`,
@@ -678,7 +703,6 @@ export class VapiService {
       }
     }
 
-    // 3. Save transcript on the booking (existing logic, improved with callId)
     if (transcript) {
       const booking = await this.prisma.db.booking.findFirst({
         where: { voiceCallId: callId },
