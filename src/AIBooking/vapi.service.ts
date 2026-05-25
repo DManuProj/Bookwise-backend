@@ -477,6 +477,28 @@ export class VapiService {
     time: string;
     serviceId: string;
   }) {
+    // ── Defensive validation — Vapi LLM occasionally drops required params
+    if (!params.slug?.trim()) {
+      return {
+        error: 'Missing slug parameter. Always pass slug in tool calls.',
+      };
+    }
+    if (!params.date?.trim()) {
+      return {
+        error: 'Missing date parameter. Ask the customer which day they want.',
+      };
+    }
+    if (!params.time?.trim()) {
+      return {
+        error: 'Missing time parameter. Ask the customer what time they want.',
+      };
+    }
+    if (!params.serviceId?.trim()) {
+      return {
+        error:
+          'Cannot check staff without a confirmed service. Ask the customer which service first.',
+      };
+    }
     // ── Get org + active staff
     const org = await this.prisma.db.organisation.findUnique({
       where: { slug: params.slug },
