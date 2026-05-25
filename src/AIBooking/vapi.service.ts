@@ -103,6 +103,14 @@ export class VapiService {
   // AI calls this when customer asks "what services do you have?"
   // Returns a list of services the AI reads to the customer.
   private async getServices(params: { slug: string }) {
+    const slug = params.slug?.trim();
+
+    if (!slug) {
+      return {
+        error: 'Missing slug parameter. Always pass slug in tool calls.',
+      };
+    }
+
     const org = await this.prisma.db.organisation.findUnique({
       where: { slug: params.slug },
       include: {
@@ -151,6 +159,26 @@ export class VapiService {
     date: string;
     staffId?: string;
   }) {
+    const slug = params.slug?.trim();
+    const date = params.date?.trim();
+    const serviceId = params.serviceId?.trim();
+
+    if (!slug) {
+      return {
+        error: 'Missing slug parameter. Always pass slug in tool calls.',
+      };
+    }
+    if (!date) {
+      return {
+        error: 'Missing date parameter. Ask the customer which day they want.',
+      };
+    }
+    if (!serviceId) {
+      return {
+        error:
+          'Service not found or not selected yet. Ask the customer which service they want to book BEFORE checking time slots.',
+      };
+    }
     // Step 1: Get org and working hours
     const org = await this.prisma.db.organisation.findUnique({
       where: { slug: params.slug },
@@ -478,30 +506,36 @@ export class VapiService {
     serviceId: string;
   }) {
     // ── Defensive validation — Vapi LLM occasionally drops required params
-    if (!params.slug?.trim()) {
+    const slug = params.slug?.trim();
+    const date = params.date?.trim();
+    const time = params.time?.trim();
+    const serviceId = params.serviceId?.trim();
+
+    if (!slug) {
       return {
         error: 'Missing slug parameter. Always pass slug in tool calls.',
       };
     }
-    if (!params.date?.trim()) {
+    if (!date) {
       return {
         error: 'Missing date parameter. Ask the customer which day they want.',
       };
     }
-    if (!params.time?.trim()) {
+    if (!time) {
       return {
         error: 'Missing time parameter. Ask the customer what time they want.',
       };
     }
-    if (!params.serviceId?.trim()) {
+    if (!serviceId) {
       return {
         error:
           'Cannot check staff without a confirmed service. Ask the customer which service first.',
       };
     }
+
     // ── Get org + active staff
     const org = await this.prisma.db.organisation.findUnique({
-      where: { slug: params.slug },
+      where: { slug },
       include: {
         users: {
           where: { status: 'ACTIVE' },
@@ -520,16 +554,19 @@ export class VapiService {
 
     // ── Get service to know booking duration
     const service = await this.prisma.db.service.findUnique({
-      where: { id: params.serviceId },
+      where: { id: serviceId },
     });
 
     if (!service || service.orgId !== org.id || service.isDeleted) {
-      return { error: 'Service not found' };
+      return {
+        error:
+          'Cannot check staff without a confirmed service. Ask the customer which service first.',
+      };
     }
 
     // ── Calculate the booking window
-    const [hour, minute] = params.time.split(':').map(Number);
-    const startAt = new Date(params.date);
+    const [hour, minute] = time.split(':').map(Number);
+    const startAt = new Date(date);
     startAt.setHours(hour, minute, 0, 0);
 
     const endAt = new Date(startAt);
