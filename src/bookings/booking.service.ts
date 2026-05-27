@@ -161,7 +161,7 @@ export class BookingService {
     const [org, hours] = await Promise.all([
       this.prisma.db.organisation.findUnique({ where: { id: user.orgId! } }),
       this.prisma.db.workingHour.findFirst({
-        where: { orgId: user.orgId!, day: dayOfWeek as DayOfWeek },
+        where: { orgId: user.orgId!, day: dayOfWeek as DayOfWeek, userId: null },
       }),
     ]);
 
@@ -295,7 +295,7 @@ export class BookingService {
     const dayOfWeek = dayNames[data.startAt.getDay()];
 
     const hours = await this.prisma.db.workingHour.findFirst({
-      where: { orgId: user.orgId!, day: dayOfWeek as DayOfWeek },
+      where: { orgId: user.orgId!, day: dayOfWeek as DayOfWeek, userId: null },
     });
 
     if (!hours || !hours.isOpen) {
@@ -524,7 +524,7 @@ export class BookingService {
     const dayOfWeek = dayNames[startAt.getDay()];
 
     const hours = await this.prisma.db.workingHour.findFirst({
-      where: { orgId: user.orgId!, day: dayOfWeek as DayOfWeek },
+      where: { orgId: user.orgId!, day: dayOfWeek as DayOfWeek, userId: null },
     });
 
     if (!hours || !hours.isOpen) {

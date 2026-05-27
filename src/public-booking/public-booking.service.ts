@@ -76,7 +76,7 @@ export class PublicBoookingService {
     // ── Step 1: Get org + working hours
     const org = await this.prisma.db.organisation.findUnique({
       where: { slug },
-      include: { workingHours: true },
+      include: { workingHours: { where: { userId: null } } },
     });
 
     if (!org || org.isDeleted) {
