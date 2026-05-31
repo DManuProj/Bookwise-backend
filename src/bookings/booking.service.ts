@@ -24,6 +24,7 @@ import {
   UNLIMITED,
 } from '../common/constants/tier-limits.constant.js';
 import { startOfMonth } from 'date-fns';
+import { toZonedTime, fromZonedTime } from 'date-fns-tz';
 
 @Injectable()
 export class BookingService {
@@ -154,28 +155,25 @@ export class BookingService {
       throw new NotFoundException('Staff member not found');
     }
 
-    //  Day of week
-    const dayNames = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
-    const dayOfWeek = dayNames[date.getDay()];
-
-    const [org, hours] = await Promise.all([
-      this.prisma.db.organisation.findUnique({ where: { id: user.orgId! } }),
-      this.prisma.db.workingHour.findFirst({
-        where: { orgId: user.orgId!, day: dayOfWeek as DayOfWeek, userId: null },
-      }),
-    ]);
-
+    const org = await this.prisma.db.organisation.findUnique({ where: { id: user.orgId! } });
     if (!org) throw new NotFoundException('Organisation not found');
+
+    const orgTz = org.timezone || 'UTC';
+    const dayNames = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+    const dateInOrgTz = toZonedTime(date, orgTz);
+    const dayOfWeek = dayNames[dateInOrgTz.getDay()];
+
+    const hours = await this.prisma.db.workingHour.findFirst({
+      where: { orgId: user.orgId!, day: dayOfWeek as DayOfWeek, userId: null },
+    });
 
     // Closed check
     if (!hours || !hours.isOpen) return [];
 
     //get existing bookings for the day
-    const dayStart = new Date(date);
-    dayStart.setHours(0, 0, 0, 0);
-
-    const dayEnd = new Date(date);
-    dayEnd.setHours(23, 59, 59, 999);
+    const orgDateStr = `${dateInOrgTz.getFullYear()}-${String(dateInOrgTz.getMonth() + 1).padStart(2, '0')}-${String(dateInOrgTz.getDate()).padStart(2, '0')}`;
+    const dayStart = fromZonedTime(`${orgDateStr}T00:00:00`, orgTz);
+    const dayEnd = fromZonedTime(`${orgDateStr}T23:59:59.999`, orgTz);
 
     const existingBookings = await this.prisma.db.booking.findMany({
       where: {
@@ -212,10 +210,10 @@ export class BookingService {
       const slotEnd = slotStart + slotDuration + buffer;
 
       const hasConflict = existingBookings.some((booking) => {
-        const bookingStart =
-          booking.startAt.getHours() * 60 + booking.startAt.getMinutes();
-        const bookingEnd =
-          booking.endAt.getHours() * 60 + booking.endAt.getMinutes() + buffer;
+        const bStart = toZonedTime(booking.startAt, orgTz);
+        const bEnd = toZonedTime(booking.endAt, orgTz);
+        const bookingStart = bStart.getHours() * 60 + bStart.getMinutes();
+        const bookingEnd = bEnd.getHours() * 60 + bEnd.getMinutes() + buffer;
 
         // Standard overlap check
         return slotStart < bookingEnd && slotEnd > bookingStart;
@@ -225,18 +223,17 @@ export class BookingService {
     });
 
     //Filter past slots if today
-    const now = new Date();
-    const today = now.toISOString().split('T')[0];
-    const requestDate = date.toISOString().split('T')[0];
+    const nowInOrgTz = toZonedTime(new Date(), orgTz);
+    const todayInOrgTz = `${nowInOrgTz.getFullYear()}-${String(nowInOrgTz.getMonth() + 1).padStart(2, '0')}-${String(nowInOrgTz.getDate()).padStart(2, '0')}`;
 
-    if (requestDate !== today) return availableSlots;
+    if (orgDateStr !== todayInOrgTz) return availableSlots;
 
-    const currentMins = now.getHours() * 60 + now.getMinutes();
-    const leadTime = org!.minLeadTimeMins || 0;
+    const currentMins = nowInOrgTz.getHours() * 60 + nowInOrgTz.getMinutes();
+    const leadTime = org.minLeadTimeMins || 0;
     const minBookingTime = currentMins + leadTime;
 
     this.logger.log(
-      `Slots for staff ${staffId} on ${requestDate}: ${availableSlots.length} available`,
+      `Slots for staff ${staffId} on ${orgDateStr}: ${availableSlots.length} available`,
     );
     return availableSlots.filter((slot) => {
       const [h, m] = slot.split(':').map(Number);
@@ -289,10 +286,11 @@ export class BookingService {
     );
 
     //  Working hours check ──
-    // NOTE: assumes server time matches org's local time.
-    // Timezone-aware version is in end-of-project list.
+    const orgTz = user.org?.timezone || 'UTC';
+    const startInOrgTz = toZonedTime(data.startAt, orgTz);
+    const endInOrgTz = toZonedTime(endAt, orgTz);
     const dayNames = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
-    const dayOfWeek = dayNames[data.startAt.getDay()];
+    const dayOfWeek = dayNames[startInOrgTz.getDay()];
 
     const hours = await this.prisma.db.workingHour.findFirst({
       where: { orgId: user.orgId!, day: dayOfWeek as DayOfWeek, userId: null },
@@ -302,8 +300,8 @@ export class BookingService {
       throw new BadRequestException('The business is closed on this day.');
     }
 
-    const startMins = data.startAt.getHours() * 60 + data.startAt.getMinutes();
-    const endMins = endAt.getHours() * 60 + endAt.getMinutes();
+    const startMins = startInOrgTz.getHours() * 60 + startInOrgTz.getMinutes();
+    const endMins = endInOrgTz.getHours() * 60 + endInOrgTz.getMinutes();
     const [openH, openM] = hours.openTime.split(':').map(Number);
     const [closeH, closeM] = hours.closeTime.split(':').map(Number);
     const openMins = openH * 60 + openM;
@@ -520,8 +518,11 @@ export class BookingService {
     }
 
     // Working hours check
+    const orgTz = user.org?.timezone || 'UTC';
+    const startInOrgTz = toZonedTime(startAt, orgTz);
+    const endInOrgTz = toZonedTime(endAt, orgTz);
     const dayNames = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
-    const dayOfWeek = dayNames[startAt.getDay()];
+    const dayOfWeek = dayNames[startInOrgTz.getDay()];
 
     const hours = await this.prisma.db.workingHour.findFirst({
       where: { orgId: user.orgId!, day: dayOfWeek as DayOfWeek, userId: null },
@@ -531,8 +532,8 @@ export class BookingService {
       throw new BadRequestException('The business is closed on this day.');
     }
 
-    const startMins = startAt.getHours() * 60 + startAt.getMinutes();
-    const endMins = endAt.getHours() * 60 + endAt.getMinutes();
+    const startMins = startInOrgTz.getHours() * 60 + startInOrgTz.getMinutes();
+    const endMins = endInOrgTz.getHours() * 60 + endInOrgTz.getMinutes();
     const [openH, openM] = hours.openTime.split(':').map(Number);
     const [closeH, closeM] = hours.closeTime.split(':').map(Number);
     const openMins = openH * 60 + openM;

@@ -13,6 +13,7 @@ import {
   UNLIMITED,
 } from '../common/constants/tier-limits.constant.js';
 import { startOfMonth } from 'date-fns';
+import { toZonedTime, fromZonedTime } from 'date-fns-tz';
 
 @Injectable()
 export class PublicBoookingService {
@@ -83,6 +84,8 @@ export class PublicBoookingService {
       throw new NotFoundException('Business not found');
     }
 
+    const orgTz = org.timezone || 'UTC';
+
     // ── Step 2: Get the service (need duration)
     const service = await this.prisma.db.service.findUnique({
       where: { id: serviceId },
@@ -93,9 +96,9 @@ export class PublicBoookingService {
     }
 
     // ── Step 3: Find which day of the week
-    const bookingDate = new Date(date);
     const dayNames = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
-    const dayOfWeek = dayNames[bookingDate.getDay()];
+    const [yr, mo, dy] = date.split('-').map(Number);
+    const dayOfWeek = dayNames[new Date(yr, mo - 1, dy).getDay()];
 
     // Find working hours for this day
     const hours = org.workingHours.find((h) => h.day === dayOfWeek);
@@ -106,11 +109,8 @@ export class PublicBoookingService {
     }
 
     // ── Step 4: Get existing bookings for that day
-    const dayStart = new Date(date);
-    dayStart.setHours(0, 0, 0, 0);
-
-    const dayEnd = new Date(date);
-    dayEnd.setHours(23, 59, 59, 999);
+    const dayStart = fromZonedTime(`${date}T00:00:00`, orgTz);
+    const dayEnd = fromZonedTime(`${date}T23:59:59.999`, orgTz);
 
     const bookingWhere: any = {
       orgId: org.id,
@@ -155,10 +155,10 @@ export class PublicBoookingService {
 
       // Check if this slot conflicts with any existing booking
       const hasConflict = existingBookings.some((booking) => {
-        const bookingStart =
-          booking.startAt.getHours() * 60 + booking.startAt.getMinutes();
-        const bookingEnd =
-          booking.endAt.getHours() * 60 + booking.endAt.getMinutes() + buffer;
+        const bStart = toZonedTime(booking.startAt, orgTz);
+        const bEnd = toZonedTime(booking.endAt, orgTz);
+        const bookingStart = bStart.getHours() * 60 + bStart.getMinutes();
+        const bookingEnd = bEnd.getHours() * 60 + bEnd.getMinutes() + buffer;
 
         // Overlap check: two ranges overlap if one starts before the other ends
         return slotStart < bookingEnd && slotEnd > bookingStart;
@@ -168,14 +168,13 @@ export class PublicBoookingService {
     });
 
     // ── Step 7: Remove past slots if booking is today ───
-    const now = new Date();
-    const today = now.toISOString().split('T')[0];
-    const requestDate = bookingDate.toISOString().split('T')[0];
+    const nowInOrgTz = toZonedTime(new Date(), orgTz);
+    const todayInOrgTz = `${nowInOrgTz.getFullYear()}-${String(nowInOrgTz.getMonth() + 1).padStart(2, '0')}-${String(nowInOrgTz.getDate()).padStart(2, '0')}`;
 
     let finalSlots = availableSlots;
 
-    if (requestDate === today) {
-      const currentMins = now.getHours() * 60 + now.getMinutes();
+    if (date === todayInOrgTz) {
+      const currentMins = nowInOrgTz.getHours() * 60 + nowInOrgTz.getMinutes();
       const leadTime = org.minLeadTimeMins || 0;
       const minBookingTime = currentMins + leadTime;
 

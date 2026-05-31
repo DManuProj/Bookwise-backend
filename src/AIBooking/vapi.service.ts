@@ -1466,6 +1466,7 @@
 // }
 import { Injectable, Logger } from '@nestjs/common';
 import { startOfMonth } from 'date-fns';
+import { toZonedTime, fromZonedTime } from 'date-fns-tz';
 import { AuditService } from '../audit/audit.service.js';
 import { EmailService } from '../email/email.service.js';
 import { NotificationService } from '../notifications/notifications.service.js';
@@ -1592,21 +1593,22 @@ export class VapiService {
     const org = await this.prisma.db.organisation.findUnique({
       where: { slug },
       include: {
-        workingHours: true,
+        workingHours: { where: { userId: null } },
         users: { where: { status: 'ACTIVE' }, select: { id: true } },
       },
     });
     if (!org || org.isDeleted) return { error: 'Business not found' };
 
+    const orgTz = org.timezone || 'UTC';
     const activeStaffIds = org.users.map((u) => u.id);
     const activeStaffCount = activeStaffIds.length;
 
     const service = await this.prisma.db.service.findUnique({ where: { id: serviceId } });
     if (!service || service.orgId !== org.id) return { error: 'Service not found' };
 
-    const bookingDate = new Date(date);
     const dayNames = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
-    const dayOfWeek = dayNames[bookingDate.getDay()];
+    const [yr, mo, dy] = date.split('-').map(Number);
+    const dayOfWeek = dayNames[new Date(yr, mo - 1, dy).getDay()];
     const hours = org.workingHours.find((h) => h.day === dayOfWeek);
     if (!hours || !hours.isOpen) {
       return {
@@ -1616,10 +1618,8 @@ export class VapiService {
       };
     }
 
-    const dayStart = new Date(date);
-    dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = new Date(date);
-    dayEnd.setHours(23, 59, 59, 999);
+    const dayStart = fromZonedTime(`${date}T00:00:00`, orgTz);
+    const dayEnd = fromZonedTime(`${date}T23:59:59.999`, orgTz);
 
     const bookingWhere: any = {
       orgId: org.id,
@@ -1654,8 +1654,10 @@ export class VapiService {
       const slotEnd = slotStart + slotDuration + buffer;
 
       const overlappingBookings = existingBookings.filter((booking) => {
-        const bookingStart = booking.startAt.getHours() * 60 + booking.startAt.getMinutes();
-        const bookingEnd = booking.endAt.getHours() * 60 + booking.endAt.getMinutes() + buffer;
+        const bStart = toZonedTime(booking.startAt, orgTz);
+        const bEnd = toZonedTime(booking.endAt, orgTz);
+        const bookingStart = bStart.getHours() * 60 + bStart.getMinutes();
+        const bookingEnd = bEnd.getHours() * 60 + bEnd.getMinutes() + buffer;
         return slotStart < bookingEnd && slotEnd > bookingStart;
       });
 
@@ -1681,14 +1683,12 @@ export class VapiService {
       return capacityUsed < activeStaffCount;
     });
 
-    // Remove past slots if booking is for today
-    // Use local-time comparison (server timezone) so currentMins matches slot times
-    const now = new Date();
-    const todayLocalStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const nowInOrgTz = toZonedTime(new Date(), orgTz);
+    const todayInOrgTz = `${nowInOrgTz.getFullYear()}-${String(nowInOrgTz.getMonth() + 1).padStart(2, '0')}-${String(nowInOrgTz.getDate()).padStart(2, '0')}`;
 
     let finalSlots = availableSlots;
-    if (date === todayLocalStr) {
-      const currentMins = now.getHours() * 60 + now.getMinutes();
+    if (date === todayInOrgTz) {
+      const currentMins = nowInOrgTz.getHours() * 60 + nowInOrgTz.getMinutes();
       const leadTime = org.minLeadTimeMins || 0;
       const minBookingTime = currentMins + leadTime;
       finalSlots = availableSlots.filter((slot) => {
@@ -1792,6 +1792,7 @@ export class VapiService {
       return { error: 'Voice booking is not available for this business. Please book manually instead.' };
     }
 
+    const orgTz = org.timezone || 'UTC';
     const activeStaffIds = org.users.map((u) => u.id);
     const activeStaffCount = activeStaffIds.length;
 
@@ -1824,17 +1825,18 @@ export class VapiService {
     if (!service || service.orgId !== org.id) return { error: 'Service not found' };
 
     const [hour, minute] = time.split(':').map(Number);
-    const startAt = new Date(date);
-    startAt.setHours(hour, minute, 0, 0);
-    const endAt = new Date(startAt);
-    endAt.setMinutes(endAt.getMinutes() + service.durationMins);
+    const startLocalStr = `${date}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00`;
+    const startAt = fromZonedTime(startLocalStr, orgTz);
+    const endAt = new Date(startAt.getTime() + service.durationMins * 60000);
 
     // ── Validate booking falls within business working hours
     const workingHours = await this.prisma.db.workingHour.findMany({
-      where: { orgId: org.id },
+      where: { orgId: org.id, userId: null },
     });
+    const startInOrgTz = toZonedTime(startAt, orgTz);
+    const endInOrgTz = toZonedTime(endAt, orgTz);
     const dayNames = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
-    const dayOfWeek = dayNames[startAt.getDay()];
+    const dayOfWeek = dayNames[startInOrgTz.getDay()];
     const dayHours = workingHours.find((h) => h.day === dayOfWeek);
 
     if (!dayHours || !dayHours.isOpen) {
@@ -1847,8 +1849,8 @@ export class VapiService {
     const [closeH, closeM] = dayHours.closeTime.split(':').map(Number);
     const openMinutes = openH * 60 + openM;
     const closeMinutes = closeH * 60 + closeM;
-    const bookingStartMinutes = startAt.getHours() * 60 + startAt.getMinutes();
-    const bookingEndMinutes = endAt.getHours() * 60 + endAt.getMinutes();
+    const bookingStartMinutes = startInOrgTz.getHours() * 60 + startInOrgTz.getMinutes();
+    const bookingEndMinutes = endInOrgTz.getHours() * 60 + endInOrgTz.getMinutes();
 
     if (bookingStartMinutes < openMinutes || bookingEndMinutes > closeMinutes) {
       return {
@@ -2023,16 +2025,16 @@ export class VapiService {
       return { error: 'Voice booking is not available for this business.' };
     }
 
+    const orgTz = org.timezone || 'UTC';
     const service = await this.prisma.db.service.findUnique({ where: { id: serviceId } });
     if (!service || service.orgId !== org.id || service.isDeleted) {
       return { error: 'Cannot check staff without a confirmed service. Ask the customer which service first.' };
     }
 
     const [hour, minute] = time.split(':').map(Number);
-    const startAt = new Date(date);
-    startAt.setHours(hour, minute, 0, 0);
-    const endAt = new Date(startAt);
-    endAt.setMinutes(endAt.getMinutes() + service.durationMins);
+    const startLocalStr = `${date}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00`;
+    const startAt = fromZonedTime(startLocalStr, orgTz);
+    const endAt = new Date(startAt.getTime() + service.durationMins * 60000);
 
     const buffer = service.buffer || org.bufferMins || 0;
     const bufferedStart = new Date(startAt.getTime() - buffer * 60000);
