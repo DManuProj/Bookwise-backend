@@ -2139,7 +2139,7 @@
 
 import { Injectable, Logger } from '@nestjs/common';
 import { startOfMonth } from 'date-fns';
-import { toZonedTime } from 'date-fns-tz';
+import { fromZonedTime, toZonedTime } from 'date-fns-tz';
 import { AuditService } from '../audit/audit.service.js';
 import { EmailService } from '../email/email.service.js';
 import { NotificationService } from '../notifications/notifications.service.js';
@@ -2289,7 +2289,6 @@ export class VapiService {
     const date = params.date?.trim();
     const serviceId = params.serviceId?.trim();
     const staffId = params.staffId?.trim();
-
     if (!slug)
       return {
         error: 'Missing slug parameter. Always pass slug in tool calls.',
@@ -2308,7 +2307,7 @@ export class VapiService {
     const org = await this.prisma.db.organisation.findUnique({
       where: { slug },
       include: {
-        workingHours: true,
+        workingHours: { where: { userId: null } },
         users: { where: { status: 'ACTIVE' }, select: { id: true } },
       },
     });
@@ -2333,10 +2332,14 @@ export class VapiService {
       };
     }
 
-    const dayStart = new Date(date);
-    dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = new Date(date);
-    dayEnd.setHours(23, 59, 59, 999);
+    const orgTz = org.timezone || 'UTC';
+    // const dayStart = new Date(date);
+    // dayStart.setHours(0, 0, 0, 0);
+    // const dayEnd = new Date(date);
+    // dayEnd.setHours(23, 59, 59, 999);
+    // Local day → UTC bounds, so we fetch the right day's bookings.
+    const dayStart = fromZonedTime(`${date}T00:00:00`, orgTz);
+    const dayEnd = fromZonedTime(`${date}T23:59:59`, orgTz);
 
     const bookingWhere: any = {
       orgId: org.id,
@@ -2373,10 +2376,15 @@ export class VapiService {
       const slotEnd = slotStart + slotDuration + buffer;
 
       const overlappingBookings = existingBookings.filter((booking) => {
-        const bookingStart =
-          booking.startAt.getHours() * 60 + booking.startAt.getMinutes();
-        const bookingEnd =
-          booking.endAt.getHours() * 60 + booking.endAt.getMinutes() + buffer;
+        // const bookingStart =
+        //   booking.startAt.getHours() * 60 + booking.startAt.getMinutes();
+        // const bookingEnd =
+        //   booking.endAt.getHours() * 60 + booking.endAt.getMinutes() + buffer;
+        // Stored times are UTC; view them in the org tz before comparing to local slots.
+        const bStart = toZonedTime(booking.startAt, orgTz);
+        const bEnd = toZonedTime(booking.endAt, orgTz);
+        const bookingStart = bStart.getHours() * 60 + bStart.getMinutes();
+        const bookingEnd = bEnd.getHours() * 60 + bEnd.getMinutes() + buffer;
         return slotStart < bookingEnd && slotEnd > bookingStart;
       });
 
@@ -2403,7 +2411,7 @@ export class VapiService {
     });
 
     // Remove past slots if booking is for today (computed in the ORG's timezone)
-    const orgTz = org.timezone || 'UTC';
+
     const nowInOrgTz = toZonedTime(new Date(), orgTz);
     const todayInOrgTz = `${nowInOrgTz.getFullYear()}-${String(nowInOrgTz.getMonth() + 1).padStart(2, '0')}-${String(nowInOrgTz.getDate()).padStart(2, '0')}`;
 
@@ -2585,17 +2593,33 @@ export class VapiService {
     if (!service) return { error: 'Service not found' };
 
     const [hour, minute] = time.split(':').map(Number);
-    const startAt = new Date(date);
-    startAt.setHours(hour, minute, 0, 0);
-    const endAt = new Date(startAt);
-    endAt.setMinutes(endAt.getMinutes() + service.durationMins);
+    // const startAt = new Date(date);
+    // startAt.setHours(hour, minute, 0, 0);
+    // const endAt = new Date(startAt);
+    // endAt.setMinutes(endAt.getMinutes() + service.durationMins);
 
-    // ── Validate booking falls within business working hours
+    // // ── Validate booking falls within business working hours
+    // const workingHours = await this.prisma.db.workingHour.findMany({
+    //   where: { orgId: org.id },
+    // });
+    // const dayNames = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+    // const dayOfWeek = dayNames[startAt.getDay()];
+    // const dayHours = workingHours.find((h) => h.day === dayOfWeek);
+    const orgTz = org.timezone || 'UTC';
+
+    // date/time are LOCAL wall-clock in the org's timezone.
+    // Convert to the correct UTC instant for storage.
+    const startAt = fromZonedTime(`${date}T${time}:00`, orgTz); // "2026-06-01T14:00:00" @ Colombo → 08:30Z
+    const endAt = new Date(startAt.getTime() + service.durationMins * 60000);
+
+    // ── Validate against working hours
     const workingHours = await this.prisma.db.workingHour.findMany({
-      where: { orgId: org.id },
+      where: { orgId: org.id, userId: null },
     });
     const dayNames = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
-    const dayOfWeek = dayNames[startAt.getDay()];
+    // Weekday from the date string, not the UTC Date — so it's the LOCAL calendar day.
+    const [yr, mo, dy] = date.split('-').map(Number);
+    const dayOfWeek = dayNames[new Date(yr, mo - 1, dy).getDay()];
     const dayHours = workingHours.find((h) => h.day === dayOfWeek);
 
     if (!dayHours || !dayHours.isOpen) {
@@ -2608,8 +2632,12 @@ export class VapiService {
     const [closeH, closeM] = dayHours.closeTime.split(':').map(Number);
     const openMinutes = openH * 60 + openM;
     const closeMinutes = closeH * 60 + closeM;
-    const bookingStartMinutes = startAt.getHours() * 60 + startAt.getMinutes();
-    const bookingEndMinutes = endAt.getHours() * 60 + endAt.getMinutes();
+    // const bookingStartMinutes = startAt.getHours() * 60 + startAt.getMinutes();
+    // const bookingEndMinutes = endAt.getHours() * 60 + endAt.getMinutes();
+    //The caller's LOCAL wall-clock vs local open/close. Don't read .getHours()
+    // off startAt — on a UTC server that's the UTC hour (08:30), not 14:00.
+    const bookingStartMinutes = hour * 60 + minute;
+    const bookingEndMinutes = bookingStartMinutes + service.durationMins;
 
     if (bookingStartMinutes < openMinutes || bookingEndMinutes > closeMinutes) {
       return {
@@ -2724,8 +2752,14 @@ export class VapiService {
       booking.user
         ? `${booking.user.firstName} ${booking.user.lastName}`
         : null,
-      startAt.toLocaleDateString(),
-      startAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      // startAt.toLocaleDateString(),
+      // startAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      startAt.toLocaleDateString('en-US', { timeZone: orgTz }),
+      startAt.toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        timeZone: orgTz,
+      }),
     );
 
     await this.notificationService.notifyOrgAdmins(
@@ -2751,7 +2785,7 @@ export class VapiService {
     return {
       success: true,
       bookingId: booking.id,
-      message: `Booking confirmed! ${customerName} is booked for ${service.name} on ${startAt.toLocaleDateString()} at ${startAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`,
+      message: `Booking confirmed! ${customerName} is booked for ${service.name} on ${startAt.toLocaleDateString('en-US', { timeZone: orgTz })} at ${startAt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: orgTz })}.`,
     };
   }
 
@@ -2810,11 +2844,14 @@ export class VapiService {
       };
     }
 
-    const [hour, minute] = time.split(':').map(Number);
-    const startAt = new Date(date);
-    startAt.setHours(hour, minute, 0, 0);
-    const endAt = new Date(startAt);
-    endAt.setMinutes(endAt.getMinutes() + service.durationMins);
+    // const [hour, minute] = time.split(':').map(Number);
+    // const startAt = new Date(date);
+    // startAt.setHours(hour, minute, 0, 0);
+    // const endAt = new Date(startAt);
+    // endAt.setMinutes(endAt.getMinutes() + service.durationMins);
+    const orgTz = org.timezone || 'UTC';
+    const startAt = fromZonedTime(`${date}T${time}:00`, orgTz);
+    const endAt = new Date(startAt.getTime() + service.durationMins * 60000);
 
     const buffer = service.buffer || org.bufferMins || 0;
     const bufferedStart = new Date(startAt.getTime() - buffer * 60000);
