@@ -4,10 +4,10 @@ import { AppModule } from './app.module.js';
 import { ValidationPipe } from '@nestjs/common';
 import { GlobalExceptionFilter } from './common/filters/http-exception.filter.js';
 import { json, urlencoded } from 'express';
-
+import { NestExpressApplication } from '@nestjs/platform-express';
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, {
-    rawBody: true, // needed for webhooks to verify the signature
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    rawBody: true,
   });
 
   // CORS
@@ -17,8 +17,8 @@ async function bootstrap() {
     credentials: true,
   });
 
-  app.use(json({ limit: '10mb' }));
-  app.use(urlencoded({ extended: true, limit: '10mb' }));
+  app.useBodyParser('json', { limit: '10mb' });
+  app.useBodyParser('urlencoded', { extended: true, limit: '10mb' });
 
   // prefix all routes with /api
   app.setGlobalPrefix('api');
