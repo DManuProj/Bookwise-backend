@@ -77,7 +77,10 @@ export class PublicBoookingService {
     // ── Step 1: Get org + working hours
     const org = await this.prisma.db.organisation.findUnique({
       where: { slug },
-      include: { workingHours: { where: { userId: null } } },
+      include: {
+        workingHours: { where: { userId: null } },
+        users: { where: { status: 'ACTIVE' }, select: { id: true } },
+      },
     });
 
     if (!org || org.isDeleted) {
@@ -112,9 +115,27 @@ export class PublicBoookingService {
     const dayStart = fromZonedTime(`${date}T00:00:00`, orgTz);
     const dayEnd = fromZonedTime(`${date}T23:59:59.999`, orgTz);
 
+    const activeStaffIds = org.users.map(u => u.id);
+
+    const onLeave = await this.prisma.db.staffLeave.findMany({
+      where: {
+        orgId: org.id,
+        userId: { in: activeStaffIds },
+        status: { in: ['PENDING', 'APPROVED'] },
+        startDate: { lt: dayEnd },
+        endDate: { gt: dayStart },
+      },
+      select: { userId: true },
+    });
+    const onLeaveIds = new Set(onLeave.map(l => l.userId));
+    const effectivePool = activeStaffIds.filter(id => !onLeaveIds.has(id));
+
+    if (staffId && onLeaveIds.has(staffId)) return [];
+    if (!staffId && effectivePool.length === 0) return [];
+
     const bookingWhere: any = {
       orgId: org.id,
-      status: { in: ['PENDING', 'CONFIRMED'] },
+      status: { notIn: ['CANCELLED', 'NO_SHOW', 'RESCHEDULED'] },
       startAt: { gte: dayStart, lte: dayEnd },
     };
 
@@ -126,6 +147,7 @@ export class PublicBoookingService {
 
     const existingBookings = await this.prisma.db.booking.findMany({
       where: bookingWhere,
+      select: { startAt: true, endAt: true, userId: true },
     });
 
     // Step 5: Generate all possible time slots
@@ -153,18 +175,32 @@ export class PublicBoookingService {
       const slotStart = slotH * 60 + slotM;
       const slotEnd = slotStart + slotDuration + buffer;
 
-      // Check if this slot conflicts with any existing booking
-      const hasConflict = existingBookings.some((booking) => {
-        const bStart = toZonedTime(booking.startAt, orgTz);
-        const bEnd = toZonedTime(booking.endAt, orgTz);
+      if (staffId) {
+        const hasConflict = existingBookings.some((booking) => {
+          const bStart = toZonedTime(booking.startAt, orgTz);
+          const bEnd = toZonedTime(booking.endAt, orgTz);
+          const bookingStart = bStart.getHours() * 60 + bStart.getMinutes();
+          const bookingEnd = bEnd.getHours() * 60 + bEnd.getMinutes() + buffer;
+          return slotStart < bookingEnd && slotEnd > bookingStart;
+        });
+        return !hasConflict;
+      }
+
+      const overlap = existingBookings.filter(b => {
+        const bStart = toZonedTime(b.startAt, orgTz);
+        const bEnd = toZonedTime(b.endAt, orgTz);
         const bookingStart = bStart.getHours() * 60 + bStart.getMinutes();
         const bookingEnd = bEnd.getHours() * 60 + bEnd.getMinutes() + buffer;
-
-        // Overlap check: two ranges overlap if one starts before the other ends
         return slotStart < bookingEnd && slotEnd > bookingStart;
       });
-
-      return !hasConflict;
+      const busyStaffIds = new Set<string>();
+      let unassignedOverlapCount = 0;
+      for (const b of overlap) {
+        if (b.userId && effectivePool.includes(b.userId)) busyStaffIds.add(b.userId);
+        else if (!b.userId) unassignedOverlapCount += 1;
+      }
+      const capacityUsed = busyStaffIds.size + unassignedOverlapCount;
+      return capacityUsed < effectivePool.length;
     });
 
     // ── Step 7: Remove past slots if booking is today ───
@@ -192,10 +228,19 @@ export class PublicBoookingService {
     // Find the org by slug
     const org = await this.prisma.db.organisation.findUnique({
       where: { slug: data.slug },
+      include: { users: { where: { status: 'ACTIVE' }, select: { id: true } } },
     });
 
     if (!org || org.isDeleted) {
       throw new NotFoundException('Business not found');
+    }
+
+    const activeStaffIds = org.users.map(u => u.id);
+    if (activeStaffIds.length === 0) {
+      throw new BadRequestException('This business does not have any active staff to take bookings right now.');
+    }
+    if (data.staffId && !activeStaffIds.includes(data.staffId)) {
+      throw new BadRequestException('The requested staff member is no longer available.');
     }
 
     // Verify service belongs to this org
@@ -224,19 +269,70 @@ export class PublicBoookingService {
     }
 
     const booking = await this.prisma.db.$transaction(async (tx) => {
-      const conflict = await tx.booking.findFirst({
+      const orgTz = org.timezone || 'UTC';
+      const startInOrgTz = toZonedTime(data.startAt, orgTz);
+      const dateStr = `${startInOrgTz.getFullYear()}-${String(startInOrgTz.getMonth() + 1).padStart(2, '0')}-${String(startInOrgTz.getDate()).padStart(2, '0')}`;
+      const dayStartUtc = fromZonedTime(`${dateStr}T00:00:00`, orgTz);
+      const dayEndUtc = fromZonedTime(`${dateStr}T23:59:59.999`, orgTz);
+
+      const onLeave = await tx.staffLeave.findMany({
         where: {
           orgId: org.id,
-          status: { in: ['PENDING', 'CONFIRMED'] },
-          startAt: { lt: data.endAt },
-          endAt: { gt: data.startAt },
-          ...(data.staffId ? { userId: data.staffId } : {}),
+          userId: { in: activeStaffIds },
+          status: { in: ['PENDING', 'APPROVED'] },
+          startDate: { lt: dayEndUtc },
+          endDate: { gt: dayStartUtc },
         },
+        select: { userId: true },
       });
-      if (conflict) {
-        throw new BadRequestException(
-          'This time slot is no longer available. Please select another time.',
-        );
+      const onLeaveIds = new Set(onLeave.map(l => l.userId));
+      const effectivePool = activeStaffIds.filter(id => !onLeaveIds.has(id));
+
+      let finalStaffId: string | null;
+
+      if (data.staffId) {
+        if (onLeaveIds.has(data.staffId)) {
+          throw new BadRequestException('The requested staff member is on leave on the selected date.');
+        }
+
+        const conflict = await tx.booking.findFirst({
+          where: {
+            orgId: org.id,
+            userId: data.staffId,
+            status: { notIn: ['CANCELLED', 'NO_SHOW', 'RESCHEDULED'] },
+            startAt: { lt: data.endAt },
+            endAt: { gt: data.startAt },
+          },
+        });
+        if (conflict) {
+          throw new BadRequestException(
+            'This time slot is no longer available. Please select another time.',
+          );
+        }
+
+        finalStaffId = data.staffId;
+      } else {
+        const overlap = await tx.booking.findMany({
+          where: {
+            orgId: org.id,
+            status: { notIn: ['CANCELLED', 'NO_SHOW', 'RESCHEDULED'] },
+            startAt: { lt: data.endAt },
+            endAt: { gt: data.startAt },
+          },
+          select: { userId: true },
+        });
+        const busyStaffIds = new Set<string>();
+        let unassignedOverlapCount = 0;
+        for (const b of overlap) {
+          if (b.userId && effectivePool.includes(b.userId)) busyStaffIds.add(b.userId);
+          else if (!b.userId) unassignedOverlapCount += 1;
+        }
+        const capacityUsed = busyStaffIds.size + unassignedOverlapCount;
+        if (capacityUsed >= effectivePool.length) {
+          throw new BadRequestException('This time slot is no longer available. Please select another time.');
+        }
+
+        finalStaffId = effectivePool.length === 1 ? effectivePool[0] : null;
       }
 
       // Find or create customer
@@ -278,7 +374,7 @@ export class PublicBoookingService {
           note: data.note || null,
           customerId: customer.id,
           serviceId: data.serviceId,
-          userId: data.staffId || null,
+          userId: finalStaffId,
           orgId: org.id,
         },
         include: {
@@ -287,6 +383,13 @@ export class PublicBoookingService {
       });
 
       return newBooking;
+    }).catch((err: any) => {
+      if (String(err?.message ?? '').includes('23P01')) {
+        throw new BadRequestException(
+          'This time slot is no longer available. Please select another time.',
+        );
+      }
+      throw err;
     });
 
     await this.emailService.sendBookingConfirmationEmail(

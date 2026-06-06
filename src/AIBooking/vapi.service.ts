@@ -175,7 +175,6 @@ export class VapiService {
     if (!org || org.isDeleted) return { error: 'Business not found' };
 
     const activeStaffIds = org.users.map((u) => u.id);
-    const activeStaffCount = activeStaffIds.length;
 
     const service = await this.resolveService(serviceId, org.id);
     if (!service) return { error: 'Service not found' };
@@ -202,9 +201,37 @@ export class VapiService {
     const dayStart = fromZonedTime(`${date}T00:00:00`, orgTz);
     const dayEnd = fromZonedTime(`${date}T23:59:59`, orgTz);
 
+    const onLeave = await this.prisma.db.staffLeave.findMany({
+      where: {
+        orgId: org.id,
+        userId: { in: activeStaffIds },
+        status: { in: ['PENDING', 'APPROVED'] },
+        startDate: { lt: dayEnd },
+        endDate: { gt: dayStart },
+      },
+      select: { userId: true },
+    });
+    const onLeaveIds = new Set(onLeave.map(l => l.userId));
+    const effectivePool = activeStaffIds.filter(id => !onLeaveIds.has(id));
+
+    if (staffId && onLeaveIds.has(staffId)) {
+      return {
+        slots: [],
+        reason: 'STAFF_ON_LEAVE',
+        message: 'That staff member is on leave that day. Offer the customer another staff member or another day.',
+      };
+    }
+    if (!staffId && effectivePool.length === 0) {
+      return {
+        slots: [],
+        reason: 'NO_STAFF_AVAILABLE',
+        message: 'No staff are available on this day. Offer the customer another day.',
+      };
+    }
+
     const bookingWhere: any = {
       orgId: org.id,
-      status: { in: ['PENDING', 'CONFIRMED'] },
+      status: { notIn: ['CANCELLED', 'NO_SHOW', 'RESCHEDULED'] },
       startAt: { gte: dayStart, lte: dayEnd },
     };
     if (staffId) bookingWhere.userId = staffId;
@@ -255,20 +282,20 @@ export class VapiService {
       }
 
       // Case 2: No specific staff → check overall capacity
-      if (activeStaffCount === 0) return false;
+      if (effectivePool.length === 0) return false;
 
       // Count distinct busy active staff + unassigned bookings (they also consume capacity)
       const busyStaffIds = new Set<string>();
       let unassignedOverlapCount = 0;
       for (const booking of overlappingBookings) {
-        if (booking.userId && activeStaffIds.includes(booking.userId)) {
+        if (booking.userId && effectivePool.includes(booking.userId)) {
           busyStaffIds.add(booking.userId);
         } else if (!booking.userId) {
           unassignedOverlapCount += 1;
         }
       }
       const capacityUsed = busyStaffIds.size + unassignedOverlapCount;
-      return capacityUsed < activeStaffCount;
+      return capacityUsed < effectivePool.length;
     });
 
     // Remove past slots if booking is for today (computed in the ORG's timezone)
@@ -420,9 +447,8 @@ export class VapiService {
     }
 
     const activeStaffIds = org.users.map((u) => u.id);
-    const activeStaffCount = activeStaffIds.length;
 
-    if (activeStaffCount === 0) {
+    if (activeStaffIds.length === 0) {
       return {
         error:
           'This business does not have any active staff to take bookings right now. Please contact them directly.',
@@ -513,10 +539,26 @@ export class VapiService {
     let booking: any;
     try {
       booking = await this.prisma.db.$transaction(async (tx) => {
+        const dayStartUtc = fromZonedTime(`${date}T00:00:00`, orgTz);
+        const dayEndUtc = fromZonedTime(`${date}T23:59:59.999`, orgTz);
+
+        const onLeave = await tx.staffLeave.findMany({
+          where: {
+            orgId: org.id,
+            userId: { in: activeStaffIds },
+            status: { in: ['PENDING', 'APPROVED'] },
+            startDate: { lt: dayEndUtc },
+            endDate: { gt: dayStartUtc },
+          },
+          select: { userId: true },
+        });
+        const onLeaveIds = new Set(onLeave.map(l => l.userId));
+        const effectivePool = activeStaffIds.filter(id => !onLeaveIds.has(id));
+
         const overlappingBookings = await tx.booking.findMany({
           where: {
             orgId: org.id,
-            status: { in: ['PENDING', 'CONFIRMED'] },
+            status: { notIn: ['CANCELLED', 'NO_SHOW', 'RESCHEDULED'] },
             startAt: { lt: bufferedEnd },
             endAt: { gt: bufferedStart },
           },
@@ -526,6 +568,7 @@ export class VapiService {
         let finalStaffId: string | null = null;
 
         if (requestedStaffId) {
+          if (onLeaveIds.has(requestedStaffId)) throw new Error('STAFF_ON_LEAVE');
           // Specific staff requested — verify they're still free
           const isBusy = overlappingBookings.some(
             (b) => b.userId === requestedStaffId,
@@ -537,17 +580,17 @@ export class VapiService {
           const busyStaffIds = new Set<string>();
           let unassignedOverlapCount = 0;
           for (const b of overlappingBookings) {
-            if (b.userId && activeStaffIds.includes(b.userId)) {
+            if (b.userId && effectivePool.includes(b.userId)) {
               busyStaffIds.add(b.userId);
             } else if (!b.userId) {
               unassignedOverlapCount += 1;
             }
           }
           const capacityUsed = busyStaffIds.size + unassignedOverlapCount;
-          if (capacityUsed >= activeStaffCount) throw new Error('SLOT_TAKEN');
+          if (capacityUsed >= effectivePool.length) throw new Error('SLOT_TAKEN');
 
           // Single-staff org → auto-assign. Multi-staff → leave null for admin.
-          finalStaffId = activeStaffCount === 1 ? activeStaffIds[0] : null;
+          finalStaffId = effectivePool.length === 1 ? effectivePool[0] : null;
         }
 
         // Find or create customer
@@ -590,6 +633,17 @@ export class VapiService {
       });
     } catch (err) {
       const msg = (err as Error).message;
+      if (msg === 'STAFF_ON_LEAVE') {
+        return {
+          error: 'The requested staff member is on leave that day. Please offer the customer another staff member or another day.',
+        };
+      }
+      if (String(msg ?? '').includes('23P01')) {
+        return {
+          error:
+            'This time slot is no longer available — all staff are booked then. Please pick another time.',
+        };
+      }
       if (msg === 'SLOT_TAKEN') {
         return {
           error:
@@ -718,10 +772,26 @@ export class VapiService {
     const bufferedStart = new Date(startAt.getTime() - buffer * 60000);
     const bufferedEnd = new Date(endAt.getTime() + buffer * 60000);
 
+    const dayStartUtc = fromZonedTime(`${date}T00:00:00`, orgTz);
+    const dayEndUtc = fromZonedTime(`${date}T23:59:59.999`, orgTz);
+
+    const onLeave = await this.prisma.db.staffLeave.findMany({
+      where: {
+        orgId: org.id,
+        userId: { in: org.users.map(u => u.id) },
+        status: { in: ['PENDING', 'APPROVED'] },
+        startDate: { lt: dayEndUtc },
+        endDate: { gt: dayStartUtc },
+      },
+      select: { userId: true },
+    });
+    const onLeaveIds = new Set(onLeave.map(l => l.userId));
+    const effectiveUsers = org.users.filter(u => !onLeaveIds.has(u.id));
+
     const conflictingBookings = await this.prisma.db.booking.findMany({
       where: {
         orgId: org.id,
-        status: { in: ['PENDING', 'CONFIRMED'] },
+        status: { notIn: ['CANCELLED', 'NO_SHOW', 'RESCHEDULED'] },
         userId: { not: null },
         startAt: { lt: bufferedEnd },
         endAt: { gt: bufferedStart },
@@ -733,17 +803,20 @@ export class VapiService {
       conflictingBookings.map((b) => b.userId).filter(Boolean),
     );
 
-    const availableStaff = org.users
+    const availableStaff = effectiveUsers
       .filter((u) => !busyStaffIds.has(u.id))
       .map((u) => ({ id: u.id, name: `${u.firstName} ${u.lastName}` }));
 
+    // activeStaffCount = staff active AND not on leave that day.
+    // The deployed Vapi prompt uses this as "1 = single staff, skip preference question",
+    // which naturally adapts: if only 1 staff is effectively available, the AI auto-picks them.
     return {
       available: availableStaff,
-      activeStaffCount: org.users.length,
-      busyCount: org.users.length - availableStaff.length,
+      activeStaffCount: effectiveUsers.length,
+      busyCount: effectiveUsers.length - availableStaff.length,
       message:
         availableStaff.length > 0
-          ? `${availableStaff.length} of ${org.users.length} staff free at this time`
+          ? `${availableStaff.length} of ${effectiveUsers.length} staff free at this time`
           : 'No staff available at this time',
     };
   }

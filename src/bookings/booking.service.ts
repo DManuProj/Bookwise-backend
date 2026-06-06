@@ -175,11 +175,25 @@ export class BookingService {
     const dayStart = fromZonedTime(`${orgDateStr}T00:00:00`, orgTz);
     const dayEnd = fromZonedTime(`${orgDateStr}T23:59:59.999`, orgTz);
 
+    const onLeave = await this.prisma.db.staffLeave.findMany({
+      where: {
+        orgId: user.orgId!,
+        userId: { in: [staffId] },
+        status: { in: ['PENDING', 'APPROVED'] },
+        startDate: { lt: dayEnd },
+        endDate: { gt: dayStart },
+      },
+      select: { userId: true },
+    });
+    const onLeaveIds = new Set(onLeave.map(l => l.userId));
+
+    if (onLeaveIds.has(staffId)) return [];
+
     const existingBookings = await this.prisma.db.booking.findMany({
       where: {
         userId: staffId,
         orgId: user.orgId!,
-        status: { notIn: ['CANCELLED', 'NO_SHOW'] },
+        status: { notIn: ['CANCELLED', 'NO_SHOW', 'RESCHEDULED'] },
         startAt: { gte: dayStart, lte: dayEnd },
         ...(query.excludeBookingId && { id: { not: query.excludeBookingId } }),
       },
@@ -289,6 +303,7 @@ export class BookingService {
     const orgTz = user.org?.timezone || 'UTC';
     const startInOrgTz = toZonedTime(data.startAt, orgTz);
     const endInOrgTz = toZonedTime(endAt, orgTz);
+    const dateStr = `${startInOrgTz.getFullYear()}-${String(startInOrgTz.getMonth() + 1).padStart(2, '0')}-${String(startInOrgTz.getDate()).padStart(2, '0')}`;
     const dayNames = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
     const dayOfWeek = dayNames[startInOrgTz.getDay()];
 
@@ -318,13 +333,32 @@ export class BookingService {
 
     // Transaction: customer resolution + conflict check + booking creation ──
     const booking = await this.prisma.db.$transaction(async (tx) => {
+      const dayStartUtc = fromZonedTime(`${dateStr}T00:00:00`, orgTz);
+      const dayEndUtc = fromZonedTime(`${dateStr}T23:59:59.999`, orgTz);
+
+      const onLeaveCreate = await tx.staffLeave.findMany({
+        where: {
+          orgId: user.orgId!,
+          userId: { in: [data.staffId] },
+          status: { in: ['PENDING', 'APPROVED'] },
+          startDate: { lt: dayEndUtc },
+          endDate: { gt: dayStartUtc },
+        },
+        select: { userId: true },
+      });
+      const onLeaveIdsCreate = new Set(onLeaveCreate.map(l => l.userId));
+
+      if (onLeaveIdsCreate.has(data.staffId)) {
+        throw new ConflictException('This staff member is on leave for the selected date.');
+      }
+
       // Conflict check inside transaction — prevents race condition where two
       // simultaneous requests both pass the check and create overlapping bookings
       const conflict = await tx.booking.findFirst({
         where: {
           userId: data.staffId,
           orgId: user.orgId!,
-          status: { notIn: ['CANCELLED', 'NO_SHOW'] },
+          status: { notIn: ['CANCELLED', 'NO_SHOW', 'RESCHEDULED'] },
           startAt: { lt: bufferedEnd },
           endAt: { gt: data.startAt },
         },
@@ -399,6 +433,13 @@ export class BookingService {
       });
 
       return newBooking;
+    }).catch((err: any) => {
+      if (String(err?.message ?? '').includes('23P01')) {
+        throw new ConflictException(
+          'This staff member already has a booking that overlaps this time.',
+        );
+      }
+      throw err;
     });
 
     //  Side effects: email + notification
@@ -549,12 +590,32 @@ export class BookingService {
     const buffer = service.buffer ?? user.org?.bufferMins ?? 0;
     const bufferedEnd = new Date(endAt.getTime() + buffer * 60000);
 
+    const dateStr = `${startInOrgTz.getFullYear()}-${String(startInOrgTz.getMonth() + 1).padStart(2, '0')}-${String(startInOrgTz.getDate()).padStart(2, '0')}`;
+    const dayStartUtc = fromZonedTime(`${dateStr}T00:00:00`, orgTz);
+    const dayEndUtc = fromZonedTime(`${dateStr}T23:59:59.999`, orgTz);
+
+    const onLeave = await this.prisma.db.staffLeave.findMany({
+      where: {
+        orgId: user.orgId!,
+        userId: { in: [staffId] },
+        status: { in: ['PENDING', 'APPROVED'] },
+        startDate: { lt: dayEndUtc },
+        endDate: { gt: dayStartUtc },
+      },
+      select: { userId: true },
+    });
+    const onLeaveIds = new Set(onLeave.map(l => l.userId));
+
+    if (onLeaveIds.has(staffId)) {
+      throw new ConflictException('This staff member is on leave for the selected date.');
+    }
+
     const conflict = await this.prisma.db.booking.findFirst({
       where: {
         id: { not: id }, //  ignore self
         userId: staffId,
         orgId: user.orgId!,
-        status: { notIn: ['CANCELLED', 'NO_SHOW'] },
+        status: { notIn: ['CANCELLED', 'NO_SHOW', 'RESCHEDULED'] },
         startAt: { lt: bufferedEnd },
         endAt: { gt: startAt },
       },
