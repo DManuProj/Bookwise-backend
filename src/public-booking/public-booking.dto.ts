@@ -1,53 +1,35 @@
-// public-booking.dto.ts
 import { Type } from 'class-transformer';
 import {
-  IsDate,
   IsNotEmpty,
   IsOptional,
   IsString,
+  Matches,
   ValidateNested,
 } from 'class-validator';
 
 export class PublicCustomerDto {
-  @IsString()
-  @IsNotEmpty()
-  name!: string;
-
-  @IsString()
-  @IsNotEmpty()
-  email!: string;
-
-  @IsString()
-  @IsNotEmpty()
-  phone!: string;
+  @IsString() @IsNotEmpty() name!: string;
+  @IsString() @IsNotEmpty() email!: string;
+  @IsString() @IsNotEmpty() phone!: string;
 }
 
 export class PublicCreateBookingDto {
+  @IsString() @IsNotEmpty() slug!: string;
+  @IsString() @IsNotEmpty() serviceId!: string;
+
+  @IsOptional() @IsString() staffId?: string;
+
+  // YYYY-MM-DD (org-local calendar day)
   @IsString()
-  @IsNotEmpty()
-  slug!: string;
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'date must be YYYY-MM-DD' })
+  date!: string;
 
+  // HH:MM 24h (org-local wall-clock)
   @IsString()
-  @IsNotEmpty()
-  serviceId!: string;
+  @Matches(/^\d{2}:\d{2}$/, { message: 'time must be HH:MM' })
+  time!: string;
 
-  @IsOptional()
-  @IsString()
-  staffId?: string;
+  @IsOptional() @IsString() note?: string;
 
-  @Type(() => Date)
-  @IsDate()
-  startAt!: Date;
-
-  @Type(() => Date)
-  @IsDate()
-  endAt!: Date;
-
-  @IsOptional()
-  @IsString()
-  note?: string;
-
-  @ValidateNested()
-  @Type(() => PublicCustomerDto)
-  customer!: PublicCustomerDto;
+  @ValidateNested() @Type(() => PublicCustomerDto) customer!: PublicCustomerDto;
 }

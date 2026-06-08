@@ -60,7 +60,9 @@ export class PublicBoookingService {
       description: org.description,
       phone: org.phone,
       address: org.address,
-      aiBookingAvailable: org.voiceAiEnabled && (org.planTier === 'PRO' || org.planTier === 'BUSINESS'),
+      aiBookingAvailable:
+        org.voiceAiEnabled &&
+        (org.planTier === 'PRO' || org.planTier === 'BUSINESS'),
       services: org.services,
       staff: org.users,
       workingHours: org.workingHours,
@@ -115,7 +117,7 @@ export class PublicBoookingService {
     const dayStart = fromZonedTime(`${date}T00:00:00`, orgTz);
     const dayEnd = fromZonedTime(`${date}T23:59:59.999`, orgTz);
 
-    const activeStaffIds = org.users.map(u => u.id);
+    const activeStaffIds = org.users.map((u) => u.id);
 
     const onLeave = await this.prisma.db.staffLeave.findMany({
       where: {
@@ -127,8 +129,8 @@ export class PublicBoookingService {
       },
       select: { userId: true },
     });
-    const onLeaveIds = new Set(onLeave.map(l => l.userId));
-    const effectivePool = activeStaffIds.filter(id => !onLeaveIds.has(id));
+    const onLeaveIds = new Set(onLeave.map((l) => l.userId));
+    const effectivePool = activeStaffIds.filter((id) => !onLeaveIds.has(id));
 
     if (staffId && onLeaveIds.has(staffId)) return [];
     if (!staffId && effectivePool.length === 0) return [];
@@ -186,7 +188,7 @@ export class PublicBoookingService {
         return !hasConflict;
       }
 
-      const overlap = existingBookings.filter(b => {
+      const overlap = existingBookings.filter((b) => {
         const bStart = toZonedTime(b.startAt, orgTz);
         const bEnd = toZonedTime(b.endAt, orgTz);
         const bookingStart = bStart.getHours() * 60 + bStart.getMinutes();
@@ -196,7 +198,8 @@ export class PublicBoookingService {
       const busyStaffIds = new Set<string>();
       let unassignedOverlapCount = 0;
       for (const b of overlap) {
-        if (b.userId && effectivePool.includes(b.userId)) busyStaffIds.add(b.userId);
+        if (b.userId && effectivePool.includes(b.userId))
+          busyStaffIds.add(b.userId);
         else if (!b.userId) unassignedOverlapCount += 1;
       }
       const capacityUsed = busyStaffIds.size + unassignedOverlapCount;
@@ -235,12 +238,16 @@ export class PublicBoookingService {
       throw new NotFoundException('Business not found');
     }
 
-    const activeStaffIds = org.users.map(u => u.id);
+    const activeStaffIds = org.users.map((u) => u.id);
     if (activeStaffIds.length === 0) {
-      throw new BadRequestException('This business does not have any active staff to take bookings right now.');
+      throw new BadRequestException(
+        'This business does not have any active staff to take bookings right now.',
+      );
     }
     if (data.staffId && !activeStaffIds.includes(data.staffId)) {
-      throw new BadRequestException('The requested staff member is no longer available.');
+      throw new BadRequestException(
+        'The requested staff member is no longer available.',
+      );
     }
 
     // Verify service belongs to this org
@@ -251,6 +258,11 @@ export class PublicBoookingService {
     if (!service || service.orgId !== org.id || service.isDeleted) {
       throw new NotFoundException('Service not found');
     }
+
+    // Build startAt/endAt from org-local date+time strings
+    const orgTz = org.timezone || 'UTC';
+    const startAt = fromZonedTime(`${data.date}T${data.time}:00`, orgTz);
+    const endAt = new Date(startAt.getTime() + service.durationMins * 60000);
 
     // Tier cap — public bookings count against the org's monthly limit
     const cap = TIER_LIMITS[org.planTier].bookingsPerMonth;
@@ -268,129 +280,135 @@ export class PublicBoookingService {
       }
     }
 
-    const booking = await this.prisma.db.$transaction(async (tx) => {
-      const orgTz = org.timezone || 'UTC';
-      const startInOrgTz = toZonedTime(data.startAt, orgTz);
-      const dateStr = `${startInOrgTz.getFullYear()}-${String(startInOrgTz.getMonth() + 1).padStart(2, '0')}-${String(startInOrgTz.getDate()).padStart(2, '0')}`;
-      const dayStartUtc = fromZonedTime(`${dateStr}T00:00:00`, orgTz);
-      const dayEndUtc = fromZonedTime(`${dateStr}T23:59:59.999`, orgTz);
+    const booking = await this.prisma.db
+      .$transaction(async (tx) => {
+        const dayStartUtc = fromZonedTime(`${data.date}T00:00:00`, orgTz);
+        const dayEndUtc = fromZonedTime(`${data.date}T23:59:59.999`, orgTz);
 
-      const onLeave = await tx.staffLeave.findMany({
-        where: {
-          orgId: org.id,
-          userId: { in: activeStaffIds },
-          status: { in: ['PENDING', 'APPROVED'] },
-          startDate: { lt: dayEndUtc },
-          endDate: { gt: dayStartUtc },
-        },
-        select: { userId: true },
-      });
-      const onLeaveIds = new Set(onLeave.map(l => l.userId));
-      const effectivePool = activeStaffIds.filter(id => !onLeaveIds.has(id));
-
-      let finalStaffId: string | null;
-
-      if (data.staffId) {
-        if (onLeaveIds.has(data.staffId)) {
-          throw new BadRequestException('The requested staff member is on leave on the selected date.');
-        }
-
-        const conflict = await tx.booking.findFirst({
+        const onLeave = await tx.staffLeave.findMany({
           where: {
             orgId: org.id,
-            userId: data.staffId,
-            status: { notIn: ['CANCELLED', 'NO_SHOW', 'RESCHEDULED'] },
-            startAt: { lt: data.endAt },
-            endAt: { gt: data.startAt },
+            userId: { in: activeStaffIds },
+            status: { in: ['PENDING', 'APPROVED'] },
+            startDate: { lt: dayEndUtc },
+            endDate: { gt: dayStartUtc },
+          },
+          select: { userId: true },
+        });
+        const onLeaveIds = new Set(onLeave.map((l) => l.userId));
+        const effectivePool = activeStaffIds.filter(
+          (id) => !onLeaveIds.has(id),
+        );
+
+        let finalStaffId: string | null;
+
+        if (data.staffId) {
+          if (onLeaveIds.has(data.staffId)) {
+            throw new BadRequestException(
+              'The requested staff member is on leave on the selected date.',
+            );
+          }
+
+          const conflict = await tx.booking.findFirst({
+            where: {
+              orgId: org.id,
+              userId: data.staffId,
+              status: { notIn: ['CANCELLED', 'NO_SHOW', 'RESCHEDULED'] },
+              startAt: { lt: endAt },
+              endAt: { gt: startAt },
+            },
+          });
+          if (conflict) {
+            throw new BadRequestException(
+              'This time slot is no longer available. Please select another time.',
+            );
+          }
+
+          finalStaffId = data.staffId;
+        } else {
+          const overlap = await tx.booking.findMany({
+            where: {
+              orgId: org.id,
+              status: { notIn: ['CANCELLED', 'NO_SHOW', 'RESCHEDULED'] },
+              startAt: { lt: endAt },
+              endAt: { gt: startAt },
+            },
+            select: { userId: true },
+          });
+          const busyStaffIds = new Set<string>();
+          let unassignedOverlapCount = 0;
+          for (const b of overlap) {
+            if (b.userId && effectivePool.includes(b.userId))
+              busyStaffIds.add(b.userId);
+            else if (!b.userId) unassignedOverlapCount += 1;
+          }
+          const capacityUsed = busyStaffIds.size + unassignedOverlapCount;
+          if (capacityUsed >= effectivePool.length) {
+            throw new BadRequestException(
+              'This time slot is no longer available. Please select another time.',
+            );
+          }
+
+          finalStaffId = effectivePool.length === 1 ? effectivePool[0] : null;
+        }
+
+        // Find or create customer
+        let customer = await tx.customer.findFirst({
+          where: {
+            email: data.customer.email,
+            orgId: org.id,
           },
         });
-        if (conflict) {
+
+        if (customer) {
+          // Update name and phone in case they changed
+          customer = await tx.customer.update({
+            where: { id: customer.id },
+            data: {
+              name: data.customer.name,
+              phone: data.customer.phone,
+            },
+          });
+        } else {
+          // New customer
+          customer = await tx.customer.create({
+            data: {
+              name: data.customer.name,
+              email: data.customer.email,
+              phone: data.customer.phone,
+              orgId: org.id,
+            },
+          });
+        }
+
+        // Create booking
+        const newBooking = await tx.booking.create({
+          data: {
+            startAt,
+            endAt,
+            source: 'MANUAL_CUSTOMER',
+            status: 'PENDING',
+            note: data.note || null,
+            customerId: customer.id,
+            serviceId: data.serviceId,
+            userId: finalStaffId,
+            orgId: org.id,
+          },
+          include: {
+            user: true,
+          },
+        });
+
+        return newBooking;
+      })
+      .catch((err: any) => {
+        if (String(err?.message ?? '').includes('23P01')) {
           throw new BadRequestException(
             'This time slot is no longer available. Please select another time.',
           );
         }
-
-        finalStaffId = data.staffId;
-      } else {
-        const overlap = await tx.booking.findMany({
-          where: {
-            orgId: org.id,
-            status: { notIn: ['CANCELLED', 'NO_SHOW', 'RESCHEDULED'] },
-            startAt: { lt: data.endAt },
-            endAt: { gt: data.startAt },
-          },
-          select: { userId: true },
-        });
-        const busyStaffIds = new Set<string>();
-        let unassignedOverlapCount = 0;
-        for (const b of overlap) {
-          if (b.userId && effectivePool.includes(b.userId)) busyStaffIds.add(b.userId);
-          else if (!b.userId) unassignedOverlapCount += 1;
-        }
-        const capacityUsed = busyStaffIds.size + unassignedOverlapCount;
-        if (capacityUsed >= effectivePool.length) {
-          throw new BadRequestException('This time slot is no longer available. Please select another time.');
-        }
-
-        finalStaffId = effectivePool.length === 1 ? effectivePool[0] : null;
-      }
-
-      // Find or create customer
-      let customer = await tx.customer.findFirst({
-        where: {
-          email: data.customer.email,
-          orgId: org.id,
-        },
+        throw err;
       });
-
-      if (customer) {
-        // Update name and phone in case they changed
-        customer = await tx.customer.update({
-          where: { id: customer.id },
-          data: {
-            name: data.customer.name,
-            phone: data.customer.phone,
-          },
-        });
-      } else {
-        // New customer
-        customer = await tx.customer.create({
-          data: {
-            name: data.customer.name,
-            email: data.customer.email,
-            phone: data.customer.phone,
-            orgId: org.id,
-          },
-        });
-      }
-
-      // Create booking
-      const newBooking = await tx.booking.create({
-        data: {
-          startAt: data.startAt,
-          endAt: data.endAt,
-          source: 'MANUAL_CUSTOMER',
-          status: 'PENDING',
-          note: data.note || null,
-          customerId: customer.id,
-          serviceId: data.serviceId,
-          userId: finalStaffId,
-          orgId: org.id,
-        },
-        include: {
-          user: true,
-        },
-      });
-
-      return newBooking;
-    }).catch((err: any) => {
-      if (String(err?.message ?? '').includes('23P01')) {
-        throw new BadRequestException(
-          'This time slot is no longer available. Please select another time.',
-        );
-      }
-      throw err;
-    });
 
     await this.emailService.sendBookingConfirmationEmail(
       data.customer.email,
@@ -400,10 +418,11 @@ export class PublicBoookingService {
       booking.user
         ? `${booking.user.firstName} ${booking.user.lastName}`
         : null,
-      booking.startAt.toLocaleDateString(),
-      booking.startAt.toLocaleTimeString([], {
+      booking.startAt.toLocaleDateString('en-US', { timeZone: orgTz }),
+      booking.startAt.toLocaleTimeString('en-US', {
         hour: '2-digit',
         minute: '2-digit',
+        timeZone: orgTz,
       }),
     );
 
