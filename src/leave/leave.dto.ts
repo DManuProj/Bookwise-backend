@@ -1,15 +1,15 @@
-import { IsDate, IsEnum, IsIn, IsOptional, IsString } from 'class-validator';
+import { IsDate, IsEnum, IsIn, IsOptional, IsString, Matches } from 'class-validator';
 import { Type } from 'class-transformer';
 import { LeaveStatus } from '../generated/prisma/client.js';
 
 export class CreateLeaveDto {
-  @IsDate()
-  @Type(() => Date)
-  startDate!: Date;
+  @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'startDate must be YYYY-MM-DD' })
+  startDate!: string;
 
-  @IsDate()
-  @Type(() => Date)
-  endDate!: Date;
+  @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'endDate must be YYYY-MM-DD' })
+  endDate!: string;
 
   @IsOptional()
   @IsString()

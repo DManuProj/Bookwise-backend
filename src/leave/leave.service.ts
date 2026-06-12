@@ -15,6 +15,7 @@ import { EmailService } from '../email/email.service.js';
 import { LeaveStatus } from '../generated/prisma/client.js';
 import { NotificationService } from '../notifications/notifications.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { fromZonedTime } from 'date-fns-tz';
 
 @Injectable()
 export class LeaveService {
@@ -57,11 +58,17 @@ export class LeaveService {
   }
 
   async requestLeave(user: AuthenticatedUser, dto: CreateLeaveDto) {
+    const orgTz = user.org?.timezone || 'UTC';
+
+    // Build org-TZ day boundaries → UTC
+    const startDate = fromZonedTime(`${dto.startDate}T00:00:00`, orgTz);
+    const endDate = fromZonedTime(`${dto.endDate}T23:59:59.999`, orgTz);
+
     const now = new Date();
-    if (dto.startDate <= now) {
+    if (startDate <= now) {
       throw new BadRequestException('Start date must be in the future');
     }
-    if (dto.endDate <= dto.startDate) {
+    if (endDate <= startDate) {
       throw new BadRequestException('End date must be after start date');
     }
 
@@ -69,8 +76,8 @@ export class LeaveService {
       where: {
         userId: user.id,
         status: { notIn: ['CANCELLED', 'REJECTED'] },
-        startDate: { lt: dto.endDate },
-        endDate: { gt: dto.startDate },
+        startDate: { lt: endDate },
+        endDate: { gt: startDate },
       },
     });
 
@@ -80,24 +87,30 @@ export class LeaveService {
       );
     }
 
+    const isOwner = user.role === 'OWNER';
+
     const leave = await this.prisma.db.staffLeave.create({
       data: {
-        startDate: dto.startDate,
-        endDate: dto.endDate,
+        startDate,
+        endDate,
         reason: dto.reason,
         userId: user.id,
         orgId: user.orgId!,
+        status: isOwner ? 'APPROVED' : 'PENDING',
+        approverId: isOwner ? user.id : null,
       },
     });
 
-    await this.notificationService.notifyOrgAdmins(
-      user.orgId!,
-      'Leave Request',
-      `${user.firstName} ${user.lastName} requested leave`,
-      'LEAVE',
-    );
+    if (!isOwner) {
+      await this.notificationService.notifyOrgAdmins(
+        user.orgId!,
+        'Leave Request',
+        `${user.firstName} ${user.lastName} requested leave`,
+        'LEAVE',
+      );
+    }
 
-    this.logger.log(`Leave requested by ${user.email}`);
+    this.logger.log(`Leave requested by ${user.email}${isOwner ? ' (auto-approved as OWNER)' : ''}`);
     return leave;
   }
 
