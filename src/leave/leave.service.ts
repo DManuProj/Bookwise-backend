@@ -195,8 +195,13 @@ export class LeaveService {
       throw new ForbiddenException('Can only cancel your own leave requests');
     }
 
-    if (leave.status !== LeaveStatus.PENDING) {
-      throw new BadRequestException('Can only cancel pending leave requests');
+    if (
+      leave.status !== LeaveStatus.PENDING &&
+      leave.status !== LeaveStatus.APPROVED
+    ) {
+      throw new BadRequestException(
+        'Can only cancel pending or approved leave requests',
+      );
     }
 
     await this.prisma.db.staffLeave.update({
