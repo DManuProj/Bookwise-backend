@@ -39,7 +39,16 @@ export class BookingService {
 
   //GET all bookings
   async getAllBookings(user: AuthenticatedUser, query: GetBookingsQueryDto) {
-    const { status, staffId, search, from, to, page = 1, limit = 10 } = query;
+    const {
+      status,
+      staffId,
+      search,
+      from,
+      to,
+      isStale,
+      page = 1,
+      limit = 10,
+    } = query;
 
     // Base filter — applies to BOTH list and stats
     const baseWhere: any = { orgId: user.orgId! };
@@ -51,6 +60,13 @@ export class BookingService {
       baseWhere.startAt = {};
       if (from) baseWhere.startAt.gte = from;
       if (to) baseWhere.startAt.lte = to;
+    }
+
+    // Stale filter — PENDING/CONFIRMED bookings whose endAt is in the past.
+    // When set, overrides the from/to date range (frontend enforces this).
+    if (isStale) {
+      baseWhere.endAt = { lt: new Date() };
+      baseWhere.status = { in: ['PENDING', 'CONFIRMED'] };
     }
 
     // Search across customer name/email + service name
@@ -74,7 +90,7 @@ export class BookingService {
       this.prisma.db.booking.findMany({
         where: listWhere,
         include: { service: true, customer: true, user: true },
-        orderBy: { startAt: 'asc' },
+        orderBy: { startAt: 'desc' },
         skip,
         take: limit,
       }),
@@ -155,7 +171,9 @@ export class BookingService {
       throw new NotFoundException('Staff member not found');
     }
 
-    const org = await this.prisma.db.organisation.findUnique({ where: { id: user.orgId! } });
+    const org = await this.prisma.db.organisation.findUnique({
+      where: { id: user.orgId! },
+    });
     if (!org) throw new NotFoundException('Organisation not found');
 
     const orgTz = org.timezone || 'UTC';
@@ -185,7 +203,7 @@ export class BookingService {
       },
       select: { userId: true },
     });
-    const onLeaveIds = new Set(onLeave.map(l => l.userId));
+    const onLeaveIds = new Set(onLeave.map((l) => l.userId));
 
     if (onLeaveIds.has(staffId)) return [];
 
@@ -332,115 +350,119 @@ export class BookingService {
     const bufferedEnd = new Date(endAt.getTime() + buffer * 60000);
 
     // Transaction: customer resolution + conflict check + booking creation ──
-    const booking = await this.prisma.db.$transaction(async (tx) => {
-      const dayStartUtc = fromZonedTime(`${dateStr}T00:00:00`, orgTz);
-      const dayEndUtc = fromZonedTime(`${dateStr}T23:59:59.999`, orgTz);
+    const booking = await this.prisma.db
+      .$transaction(async (tx) => {
+        const dayStartUtc = fromZonedTime(`${dateStr}T00:00:00`, orgTz);
+        const dayEndUtc = fromZonedTime(`${dateStr}T23:59:59.999`, orgTz);
 
-      const onLeaveCreate = await tx.staffLeave.findMany({
-        where: {
-          orgId: user.orgId!,
-          userId: { in: [data.staffId] },
-          status: { in: ['PENDING', 'APPROVED'] },
-          startDate: { lt: dayEndUtc },
-          endDate: { gt: dayStartUtc },
-        },
-        select: { userId: true },
-      });
-      const onLeaveIdsCreate = new Set(onLeaveCreate.map(l => l.userId));
-
-      if (onLeaveIdsCreate.has(data.staffId)) {
-        throw new ConflictException('This staff member is on leave for the selected date.');
-      }
-
-      // Conflict check inside transaction — prevents race condition where two
-      // simultaneous requests both pass the check and create overlapping bookings
-      const conflict = await tx.booking.findFirst({
-        where: {
-          userId: data.staffId,
-          orgId: user.orgId!,
-          status: { notIn: ['CANCELLED', 'NO_SHOW'] },
-          startAt: { lt: bufferedEnd },
-          endAt: { gt: data.startAt },
-        },
-      });
-
-      if (conflict) {
-        this.logger.log(
-          `Booking conflict: staff ${data.staffId} already booked ${conflict.id}`,
-        );
-        throw new ConflictException(
-          'This staff member already has a booking that overlaps this time.',
-        );
-      }
-
-      let customerId: string;
-
-      if (data.customerId) {
-        // Owner picked from search → use existing customer
-        const existing = await tx.customer.findUnique({
-          where: { id: data.customerId },
-        });
-
-        if (!existing || existing.orgId !== user.orgId) {
-          throw new NotFoundException('Customer not found');
-        }
-
-        customerId = existing.id;
-      } else if (data.customer) {
-        // Owner typed details → must be a brand new customer
-        const existingByEmail = await tx.customer.findUnique({
+        const onLeaveCreate = await tx.staffLeave.findMany({
           where: {
-            email_orgId: {
-              email: data.customer.email,
-              orgId: user.orgId!,
-            },
+            orgId: user.orgId!,
+            userId: { in: [data.staffId] },
+            status: { in: ['PENDING', 'APPROVED'] },
+            startDate: { lt: dayEndUtc },
+            endDate: { gt: dayStartUtc },
           },
+          select: { userId: true },
         });
+        const onLeaveIdsCreate = new Set(onLeaveCreate.map((l) => l.userId));
 
-        if (existingByEmail) {
+        if (onLeaveIdsCreate.has(data.staffId)) {
           throw new ConflictException(
-            'A customer with this email already exists. Please search and select them from the list.',
+            'This staff member is on leave for the selected date.',
           );
         }
 
-        const newCustomer = await tx.customer.create({
-          data: {
-            name: data.customer.name,
-            email: data.customer.email,
-            phone: data.customer.phone,
+        // Conflict check inside transaction — prevents race condition where two
+        // simultaneous requests both pass the check and create overlapping bookings
+        const conflict = await tx.booking.findFirst({
+          where: {
+            userId: data.staffId,
             orgId: user.orgId!,
+            status: { notIn: ['CANCELLED', 'NO_SHOW'] },
+            startAt: { lt: bufferedEnd },
+            endAt: { gt: data.startAt },
           },
         });
 
-        customerId = newCustomer.id;
-      } else {
-        throw new BadRequestException('Customer info is required');
-      }
+        if (conflict) {
+          this.logger.log(
+            `Booking conflict: staff ${data.staffId} already booked ${conflict.id}`,
+          );
+          throw new ConflictException(
+            'This staff member already has a booking that overlaps this time.',
+          );
+        }
 
-      const newBooking = await tx.booking.create({
-        data: {
-          startAt: data.startAt,
-          endAt,
-          source: 'MANUAL_DASHBOARD',
-          status: 'PENDING',
-          note: data.note || null,
-          customerId,
-          serviceId: data.serviceId,
-          userId: data.staffId,
-          orgId: user.orgId!,
-        },
-        include: { service: true, customer: true, user: true },
+        let customerId: string;
+
+        if (data.customerId) {
+          // Owner picked from search → use existing customer
+          const existing = await tx.customer.findUnique({
+            where: { id: data.customerId },
+          });
+
+          if (!existing || existing.orgId !== user.orgId) {
+            throw new NotFoundException('Customer not found');
+          }
+
+          customerId = existing.id;
+        } else if (data.customer) {
+          // Owner typed details → must be a brand new customer
+          const existingByEmail = await tx.customer.findUnique({
+            where: {
+              email_orgId: {
+                email: data.customer.email,
+                orgId: user.orgId!,
+              },
+            },
+          });
+
+          if (existingByEmail) {
+            throw new ConflictException(
+              'A customer with this email already exists. Please search and select them from the list.',
+            );
+          }
+
+          const newCustomer = await tx.customer.create({
+            data: {
+              name: data.customer.name,
+              email: data.customer.email,
+              phone: data.customer.phone,
+              orgId: user.orgId!,
+            },
+          });
+
+          customerId = newCustomer.id;
+        } else {
+          throw new BadRequestException('Customer info is required');
+        }
+
+        const newBooking = await tx.booking.create({
+          data: {
+            startAt: data.startAt,
+            endAt,
+            source: 'MANUAL_DASHBOARD',
+            status: 'PENDING',
+            note: data.note || null,
+            customerId,
+            serviceId: data.serviceId,
+            userId: data.staffId,
+            orgId: user.orgId!,
+          },
+          include: { service: true, customer: true, user: true },
+        });
+
+        return newBooking;
+      })
+      .catch((err: any) => {
+        if (String(err?.message ?? '').includes('23P01')) {
+          throw new ConflictException(
+            'This staff member already has a booking that overlaps this time.',
+          );
+        }
+        throw err;
       });
-
-      return newBooking;
-    }).catch((err: any) => {
-      if (String(err?.message ?? '').includes('23P01')) {
-        throw new ConflictException(
-          'This staff member already has a booking that overlaps this time.',
-        );
-      }
-      throw err;
-    });
 
     //  Side effects: email + notification
     await this.emailService.sendBookingConfirmationEmail(
@@ -531,7 +553,11 @@ export class BookingService {
       const newService = await this.prisma.db.service.findUnique({
         where: { id: data.serviceId },
       });
-      if (!newService || newService.orgId !== user.orgId || newService.isDeleted) {
+      if (
+        !newService ||
+        newService.orgId !== user.orgId ||
+        newService.isDeleted
+      ) {
         throw new NotFoundException('Service not found');
       }
       service = newService;
@@ -606,10 +632,12 @@ export class BookingService {
       },
       select: { userId: true },
     });
-    const onLeaveIds = new Set(onLeave.map(l => l.userId));
+    const onLeaveIds = new Set(onLeave.map((l) => l.userId));
 
     if (onLeaveIds.has(staffId)) {
-      throw new ConflictException('This staff member is on leave for the selected date.');
+      throw new ConflictException(
+        'This staff member is on leave for the selected date.',
+      );
     }
 
     const conflict = await this.prisma.db.booking.findFirst({
@@ -646,16 +674,24 @@ export class BookingService {
 
     if (timeChanged) {
       const oldDate = oldStartAt.toLocaleDateString();
-      const oldTime = oldStartAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const oldTime = oldStartAt.toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+      });
       const newDate = updated.startAt.toLocaleDateString();
-      const newTime = updated.startAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const newTime = updated.startAt.toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+      });
 
       await this.emailService.sendBookingRescheduledEmail(
         updated.customer.email,
         updated.customer.name,
         user.org?.name || '',
         updated.service.name,
-        updated.user ? `${updated.user.firstName} ${updated.user.lastName}` : null,
+        updated.user
+          ? `${updated.user.firstName} ${updated.user.lastName}`
+          : null,
         oldDate,
         oldTime,
         newDate,

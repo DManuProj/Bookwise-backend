@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  IsBoolean,
   IsDate,
   IsEnum,
   IsInt,
@@ -97,6 +98,11 @@ export class GetBookingsQueryDto {
   @IsInt()
   @Min(1)
   limit?: number = 10;
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  isStale?: boolean;
 }
 
 export class UpdateBookingDataDto {
