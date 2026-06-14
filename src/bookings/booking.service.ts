@@ -193,7 +193,7 @@ export class BookingService {
       where: {
         userId: staffId,
         orgId: user.orgId!,
-        status: { notIn: ['CANCELLED', 'NO_SHOW', 'RESCHEDULED'] },
+        status: { notIn: ['CANCELLED', 'NO_SHOW'] },
         startAt: { gte: dayStart, lte: dayEnd },
         ...(query.excludeBookingId && { id: { not: query.excludeBookingId } }),
       },
@@ -358,7 +358,7 @@ export class BookingService {
         where: {
           userId: data.staffId,
           orgId: user.orgId!,
-          status: { notIn: ['CANCELLED', 'NO_SHOW', 'RESCHEDULED'] },
+          status: { notIn: ['CANCELLED', 'NO_SHOW'] },
           startAt: { lt: bufferedEnd },
           endAt: { gt: data.startAt },
         },
@@ -522,6 +522,8 @@ export class BookingService {
       throw new BadRequestException('Only pending bookings can be edited');
     }
 
+    const oldStartAt = existingBooking.startAt;
+
     // ── 2. Resolve effective service ──
     // If serviceId changed, fetch and verify the new one. Else reuse existing.
     let service = existingBooking.service;
@@ -615,7 +617,7 @@ export class BookingService {
         id: { not: id }, //  ignore self
         userId: staffId,
         orgId: user.orgId!,
-        status: { notIn: ['CANCELLED', 'NO_SHOW', 'RESCHEDULED'] },
+        status: { notIn: ['CANCELLED', 'NO_SHOW'] },
         startAt: { lt: bufferedEnd },
         endAt: { gt: startAt },
       },
@@ -640,6 +642,48 @@ export class BookingService {
       include: { service: true, customer: true, user: true },
     });
 
+    const timeChanged = oldStartAt.getTime() !== updated.startAt.getTime();
+
+    if (timeChanged) {
+      const oldDate = oldStartAt.toLocaleDateString();
+      const oldTime = oldStartAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const newDate = updated.startAt.toLocaleDateString();
+      const newTime = updated.startAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+      await this.emailService.sendBookingRescheduledEmail(
+        updated.customer.email,
+        updated.customer.name,
+        user.org?.name || '',
+        updated.service.name,
+        updated.user ? `${updated.user.firstName} ${updated.user.lastName}` : null,
+        oldDate,
+        oldTime,
+        newDate,
+        newTime,
+      );
+
+      await this.notificationService.notifyOrgAdmins(
+        user.orgId!,
+        'Booking Rescheduled',
+        `${updated.customer.name}'s booking for ${updated.service.name} was moved to ${newDate} ${newTime}`,
+        'BOOKING',
+        'BOOKING',
+        updated.id,
+      );
+
+      if (updated.userId) {
+        await this.notificationService.createNotification(
+          updated.userId,
+          user.orgId!,
+          'Booking Rescheduled',
+          `${updated.customer.name}'s booking for ${updated.service.name} was moved to ${newDate} ${newTime}`,
+          'BOOKING',
+          'BOOKING',
+          updated.id,
+        );
+      }
+    }
+
     await this.auditService.log({
       orgId: user.orgId!,
       userId: user.id,
@@ -651,6 +695,8 @@ export class BookingService {
         customerName: updated.customer.name,
         serviceName: updated.service.name,
         startAt: updated.startAt,
+        timeChanged,
+        previousStartAt: oldStartAt,
         changedFields: Object.keys(data).filter(
           (k) => data[k as keyof typeof data] !== undefined,
         ),

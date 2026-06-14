@@ -231,7 +231,7 @@ export class VapiService {
 
     const bookingWhere: any = {
       orgId: org.id,
-      status: { notIn: ['CANCELLED', 'NO_SHOW', 'RESCHEDULED'] },
+      status: { notIn: ['CANCELLED', 'NO_SHOW'] },
       startAt: { gte: dayStart, lte: dayEnd },
     };
     if (staffId) bookingWhere.userId = staffId;
@@ -558,7 +558,7 @@ export class VapiService {
         const overlappingBookings = await tx.booking.findMany({
           where: {
             orgId: org.id,
-            status: { notIn: ['CANCELLED', 'NO_SHOW', 'RESCHEDULED'] },
+            status: { notIn: ['CANCELLED', 'NO_SHOW'] },
             startAt: { lt: bufferedEnd },
             endAt: { gt: bufferedStart },
           },
@@ -791,7 +791,7 @@ export class VapiService {
     const conflictingBookings = await this.prisma.db.booking.findMany({
       where: {
         orgId: org.id,
-        status: { notIn: ['CANCELLED', 'NO_SHOW', 'RESCHEDULED'] },
+        status: { notIn: ['CANCELLED', 'NO_SHOW'] },
         userId: { not: null },
         startAt: { lt: bufferedEnd },
         endAt: { gt: bufferedStart },

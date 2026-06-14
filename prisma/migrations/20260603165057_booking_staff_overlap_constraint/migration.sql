@@ -7,6 +7,6 @@ EXCLUDE USING gist (
   tsrange("startAt", "endAt", '[)') WITH &&
 )
 WHERE (
-  status NOT IN ('CANCELLED', 'NO_SHOW', 'RESCHEDULED')
+  status NOT IN ('CANCELLED', 'NO_SHOW')
   AND "userId" IS NOT NULL
 );

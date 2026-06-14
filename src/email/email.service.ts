@@ -163,6 +163,74 @@ export class EmailService {
     }
   }
 
+  // ── Booking rescheduled email ──────────────────────
+  async sendBookingRescheduledEmail(
+    to: string,
+    customerName: string,
+    orgName: string,
+    serviceName: string,
+    staffName: string | null,
+    oldDate: string,
+    oldTime: string,
+    newDate: string,
+    newTime: string,
+  ): Promise<void> {
+    const content = `
+      <div style="background-color:#eff6ff;border-radius:100px;padding:10px 20px;text-align:center;margin:0 0 24px;border:1px solid #bfdbfe;display:inline-block;">
+        <span style="color:#2563eb;font-size:14px;font-weight:600;">↗ Booking Rescheduled</span>
+      </div>
+
+      <p style="color:#475569;font-size:15px;line-height:26px;margin:0 0 12px;">
+        Hi ${customerName},
+      </p>
+
+      <p style="color:#475569;font-size:15px;line-height:26px;margin:0 0 12px;">
+        Your appointment at <strong style="color:#0f172a;">${orgName}</strong> has been moved to a new time.
+      </p>
+
+      <div style="background-color:#f8fafc;border-radius:12px;padding:20px 24px;margin:24px 0;border:1px solid #e2e8f0;">
+        <p style="margin:0 0 6px;font-size:13px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:0.5px;">Previous time</p>
+        <p style="margin:0;font-size:14px;color:#94a3b8;text-decoration:line-through;">
+          ${oldDate} at ${oldTime}
+        </p>
+      </div>
+
+      <div style="background-color:#f0f9ff;border-radius:12px;padding:20px 24px;margin:24px 0;border:1px solid #bae6fd;">
+        <p style="margin:0 0 6px;font-size:13px;font-weight:600;color:#0284c7;text-transform:uppercase;letter-spacing:0.5px;">New time</p>
+        <p style="margin:0 0 12px;font-size:16px;font-weight:700;color:#0f172a;">
+          ${newDate} at ${newTime}
+        </p>
+        <p style="margin:0 0 8px;font-size:14px;color:#0f172a;">
+          <span style="color:#94a3b8;font-weight:600;font-size:13px;">SERVICE:</span> ${serviceName}
+        </p>
+        ${
+          staffName
+            ? `<p style="margin:0;font-size:14px;color:#0f172a;">
+            <span style="color:#94a3b8;font-weight:600;font-size:13px;">STAFF:</span> ${staffName}
+          </p>`
+            : ''
+        }
+      </div>
+
+      <p style="color:#94a3b8;font-size:13px;text-align:center;margin:24px 0 0;">
+        Questions? Contact ${orgName} directly.
+      </p>
+    `;
+
+    try {
+      await this.resend.emails.send({
+        from: 'Bookwise <onboarding@resend.dev>',
+        to,
+        subject: `Your booking has been rescheduled — ${orgName}`,
+        html: this.wrapInTemplate(content),
+      });
+
+      this.logger.log(`Rescheduled email sent to: ${to}`);
+    } catch (error) {
+      this.logger.error(`Failed to send rescheduled email to: ${to}`, error);
+    }
+  }
+
   // ── Booking status update email ────────────────────
   async sendBookingStatusEmail(
     to: string,

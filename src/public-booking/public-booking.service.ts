@@ -137,7 +137,7 @@ export class PublicBoookingService {
 
     const bookingWhere: any = {
       orgId: org.id,
-      status: { notIn: ['CANCELLED', 'NO_SHOW', 'RESCHEDULED'] },
+      status: { notIn: ['CANCELLED', 'NO_SHOW'] },
       startAt: { gte: dayStart, lte: dayEnd },
     };
 
@@ -313,7 +313,7 @@ export class PublicBoookingService {
             where: {
               orgId: org.id,
               userId: data.staffId,
-              status: { notIn: ['CANCELLED', 'NO_SHOW', 'RESCHEDULED'] },
+              status: { notIn: ['CANCELLED', 'NO_SHOW'] },
               startAt: { lt: endAt },
               endAt: { gt: startAt },
             },
@@ -329,7 +329,7 @@ export class PublicBoookingService {
           const overlap = await tx.booking.findMany({
             where: {
               orgId: org.id,
-              status: { notIn: ['CANCELLED', 'NO_SHOW', 'RESCHEDULED'] },
+              status: { notIn: ['CANCELLED', 'NO_SHOW'] },
               startAt: { lt: endAt },
               endAt: { gt: startAt },
             },

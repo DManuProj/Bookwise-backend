@@ -24,7 +24,6 @@ enum BookingStatus {
   CANCELLED
   COMPLETED
   NO_SHOW
-  RESCHEDULED
 }
 
 enum BookingSource {
