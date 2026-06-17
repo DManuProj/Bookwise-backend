@@ -21,7 +21,7 @@ async function bootstrap() {
   app.useBodyParser('urlencoded', { extended: true, limit: '10mb' });
 
   // prefix all routes with /api
-  app.setGlobalPrefix('api');
+  app.setGlobalPrefix('api/v1');
 
   app.useGlobalPipes(
     new ValidationPipe({
