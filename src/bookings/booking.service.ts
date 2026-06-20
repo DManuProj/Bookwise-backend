@@ -443,7 +443,7 @@ export class BookingService {
             startAt: data.startAt,
             endAt,
             source: 'MANUAL_DASHBOARD',
-            status: 'PENDING',
+            status: 'CONFIRMED',
             note: data.note || null,
             customerId,
             serviceId: data.serviceId,
@@ -473,8 +473,8 @@ export class BookingService {
       booking.user
         ? `${booking.user.firstName} ${booking.user.lastName}`
         : null,
-      booking.startAt.toLocaleDateString(),
-      booking.startAt.toLocaleTimeString([], {
+      toZonedTime(booking.startAt, orgTz).toLocaleDateString(),
+      toZonedTime(booking.startAt, orgTz).toLocaleTimeString([], {
         hour: '2-digit',
         minute: '2-digit',
       }),
@@ -673,16 +673,19 @@ export class BookingService {
     const timeChanged = oldStartAt.getTime() !== updated.startAt.getTime();
 
     if (timeChanged) {
-      const oldDate = oldStartAt.toLocaleDateString();
-      const oldTime = oldStartAt.toLocaleTimeString([], {
+      const oldDate = toZonedTime(oldStartAt, orgTz).toLocaleDateString();
+      const oldTime = toZonedTime(oldStartAt, orgTz).toLocaleTimeString([], {
         hour: '2-digit',
         minute: '2-digit',
       });
-      const newDate = updated.startAt.toLocaleDateString();
-      const newTime = updated.startAt.toLocaleTimeString([], {
-        hour: '2-digit',
-        minute: '2-digit',
-      });
+      const newDate = toZonedTime(updated.startAt, orgTz).toLocaleDateString();
+      const newTime = toZonedTime(updated.startAt, orgTz).toLocaleTimeString(
+        [],
+        {
+          hour: '2-digit',
+          minute: '2-digit',
+        },
+      );
 
       await this.emailService.sendBookingRescheduledEmail(
         updated.customer.email,
@@ -780,8 +783,14 @@ export class BookingService {
       user.org?.name || '',
       booking.service.name,
       data.status,
-      booking.startAt.toLocaleDateString(),
-      booking.startAt.toLocaleTimeString([], {
+      toZonedTime(
+        booking.startAt,
+        user.org?.timezone || 'UTC',
+      ).toLocaleDateString(),
+      toZonedTime(
+        booking.startAt,
+        user.org?.timezone || 'UTC',
+      ).toLocaleTimeString([], {
         hour: '2-digit',
         minute: '2-digit',
       }),
