@@ -87,6 +87,8 @@ model Organisation {
   voiceAiEnabled       Boolean   @default(false)
   planTier             PlanTier  @default(STARTER)
   isDeleted            Boolean   @default(false)
+  isSuspended          Boolean   @default(false)
+  suspendedAt          DateTime?
   stripeCustomerId     String?   @unique
   stripeSubscriptionId String?
   deletedAt            DateTime?
@@ -308,4 +310,17 @@ model StaffLeave {
 
   orgId String
   org   Organisation @relation(fields: [orgId], references: [id])
+}
+
+model PlatformAuditLog {
+  id           String   @id @default(cuid())
+  actorClerkId String
+  action       String
+  targetOrgId  String?
+  before       Json?
+  after        Json?
+  createdAt    DateTime @default(now())
+
+  @@index([targetOrgId, createdAt])
+  @@index([actorClerkId, createdAt])
 }

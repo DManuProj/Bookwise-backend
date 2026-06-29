@@ -22,6 +22,7 @@ import { BillingModule } from './billing/billing.module.js';
 import { SlugCheckingModule } from './slug/slug.module.js';
 import { OverviewModule } from './overview/overview.module.js';
 import { AuditModule } from './audit/audit.module.js';
+import { AdminModule } from './admin/admin.module.js';
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { AuditModule } from './audit/audit.module.js';
     SlugCheckingModule,
     OverviewModule,
     AuditModule,
+    AdminModule,
   ],
   controllers: [AppController],
   providers: [AppService],
