@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Param, Patch, Query, Req, UseGuards } from '@nestjs/common';
 import { SuperAdminGuard } from './guards/super-admin.guard.js';
 import { AdminService } from './admin.service.js';
-import { ChangePlanTierDto, ToggleVoiceAiDto } from './dto/admin-actions.dto.js';
+import { ChangePlanTierDto, SuspendOrgDto, ToggleVoiceAiDto } from './dto/admin-actions.dto.js';
 
 @Controller('admin')
 @UseGuards(SuperAdminGuard)
@@ -41,6 +41,15 @@ export class AdminController {
     @Req() req: any,
   ) {
     return this.adminService.setVoiceAi(id, dto.enabled, req.superAdminId);
+  }
+
+  @Patch('organisations/:id/suspend')
+  setSuspended(
+    @Param('id') id: string,
+    @Body() dto: SuspendOrgDto,
+    @Req() req: any,
+  ) {
+    return this.adminService.setSuspended(id, dto.suspended, req.superAdminId);
   }
 
   @Patch('organisations/:id/plan-tier')

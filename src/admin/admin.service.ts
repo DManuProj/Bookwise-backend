@@ -313,6 +313,33 @@ export class AdminService {
     return updated;
   }
 
+  async setSuspended(orgId: string, suspended: boolean, actorClerkId: string) {
+    const org = await this.prisma.db.organisation.findUnique({
+      where: { id: orgId },
+      select: { id: true, isSuspended: true, suspendedAt: true },
+    });
+    if (!org) throw new NotFoundException(`Organisation ${orgId} not found`);
+
+    const updated = await this.prisma.db.organisation.update({
+      where: { id: orgId },
+      data: {
+        isSuspended: suspended,
+        suspendedAt: suspended ? new Date() : null,
+      },
+      select: { id: true, name: true, slug: true, isSuspended: true, suspendedAt: true },
+    });
+
+    await this.logPlatformAction({
+      actorClerkId,
+      action: suspended ? 'SUSPEND_ORG' : 'REACTIVATE_ORG',
+      targetOrgId: orgId,
+      before: { isSuspended: org.isSuspended, suspendedAt: org.suspendedAt },
+      after: { isSuspended: updated.isSuspended, suspendedAt: updated.suspendedAt },
+    });
+
+    return updated;
+  }
+
   private async logPlatformAction(params: {
     actorClerkId: string;
     action: string;

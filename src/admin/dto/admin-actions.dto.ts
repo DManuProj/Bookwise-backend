@@ -10,3 +10,8 @@ export class ChangePlanTierDto {
   @IsEnum(PlanTier)
   planTier!: PlanTier;
 }
+
+export class SuspendOrgDto {
+  @IsBoolean()
+  suspended!: boolean;
+}
