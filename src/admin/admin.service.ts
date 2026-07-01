@@ -110,6 +110,8 @@ export class AdminService {
           planTier: true,
           voiceAiEnabled: true,
           isDeleted: true,
+          isSuspended: true,
+          suspendedAt: true,
           stripeCustomerId: true,
           stripeSubscriptionId: true,
           createdAt: true,
