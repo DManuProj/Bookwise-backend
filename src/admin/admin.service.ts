@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { PlanTier } from '../generated/prisma/enums.js';
+import { PlanTier, BookingStatus } from '../generated/prisma/enums.js';
 
 @Injectable()
 export class AdminService {
@@ -200,6 +200,91 @@ export class AdminService {
         services: counts!.services.length,
         bookings: counts!._count.bookings,
         customers: counts!._count.customers,
+      },
+    };
+  }
+
+  async getOrgBookings(
+    id: string,
+    page: number,
+    limit: number,
+    from?: string,
+    to?: string,
+  ) {
+    const where = {
+      orgId: id,
+      ...(from || to
+        ? {
+            startAt: {
+              ...(from ? { gte: new Date(from) } : {}),
+              ...(to ? { lte: new Date(to) } : {}),
+            },
+          }
+        : {}),
+    };
+
+    const [bookings, total, statusGroups] = await Promise.all([
+      this.prisma.db.booking.findMany({
+        where,
+        orderBy: { startAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+        select: {
+          id: true,
+          orgId: true,
+          customerId: true,
+          serviceId: true,
+          userId: true,
+          startAt: true,
+          endAt: true,
+          status: true,
+          source: true,
+          note: true,
+          createdAt: true,
+          customer: { select: { name: true, phone: true } },
+          service: { select: { name: true, durationMins: true } },
+          user: { select: { firstName: true, lastName: true } },
+        },
+      }),
+      this.prisma.db.booking.count({ where }),
+      this.prisma.db.booking.groupBy({
+        by: ['status'],
+        where,
+        _count: true,
+      }),
+    ]);
+
+    const statusMap = new Map<BookingStatus, number>();
+    for (const row of statusGroups) {
+      statusMap.set(row.status, row._count);
+    }
+
+    const pending = statusMap.get(BookingStatus.PENDING) ?? 0;
+    const confirmed = statusMap.get(BookingStatus.CONFIRMED) ?? 0;
+    const completed = statusMap.get(BookingStatus.COMPLETED) ?? 0;
+    const cancelled = statusMap.get(BookingStatus.CANCELLED) ?? 0;
+    const noShow = statusMap.get(BookingStatus.NO_SHOW) ?? 0;
+
+    const data = bookings.map(({ customer, service, user, ...booking }) => ({
+      ...booking,
+      customer: customer ?? null,
+      service: service ?? null,
+      user: user ?? null,
+    }));
+
+    return {
+      data,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+      stats: {
+        total: pending + confirmed + completed + cancelled + noShow,
+        pending,
+        confirmed,
+        completed,
+        cancelled,
+        noShow,
       },
     };
   }

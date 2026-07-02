@@ -34,6 +34,19 @@ export class AdminController {
     return this.adminService.getOrgDetail(id);
   }
 
+  @Get('organisations/:id/bookings')
+  getOrgBookings(
+    @Param('id') id: string,
+    @Query('page') rawPage?: string,
+    @Query('limit') rawLimit?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    const page = Math.max(1, parseInt(rawPage ?? '1', 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(rawLimit ?? '10', 10) || 10));
+    return this.adminService.getOrgBookings(id, page, limit, from, to);
+  }
+
   @Patch('organisations/:id/voice-ai')
   setVoiceAi(
     @Param('id') id: string,
