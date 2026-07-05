@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { PlanTier, BookingStatus } from '../generated/prisma/enums.js';
 
@@ -355,9 +359,13 @@ export class AdminService {
   async setVoiceAi(orgId: string, enabled: boolean, actorClerkId: string) {
     const org = await this.prisma.db.organisation.findUnique({
       where: { id: orgId },
-      select: { id: true, voiceAiEnabled: true },
+      select: { id: true, planTier: true, voiceAiEnabled: true },
     });
     if (!org) throw new NotFoundException(`Organisation ${orgId} not found`);
+
+    if (enabled === true && org.planTier === PlanTier.STARTER) {
+      throw new BadRequestException('Voice AI requires a PRO or BUSINESS plan');
+    }
 
     const updated = await this.prisma.db.organisation.update({
       where: { id: orgId },
@@ -379,22 +387,34 @@ export class AdminService {
   async setPlanTier(orgId: string, planTier: PlanTier, actorClerkId: string) {
     const org = await this.prisma.db.organisation.findUnique({
       where: { id: orgId },
-      select: { id: true, planTier: true },
+      select: { id: true, planTier: true, voiceAiEnabled: true },
     });
     if (!org) throw new NotFoundException(`Organisation ${orgId} not found`);
 
+    const data: { planTier: PlanTier; voiceAiEnabled?: boolean } = { planTier };
+    if (planTier === PlanTier.STARTER) data.voiceAiEnabled = false;
+
     const updated = await this.prisma.db.organisation.update({
       where: { id: orgId },
-      data: { planTier },
-      select: { id: true, name: true, slug: true, planTier: true },
+      data,
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        planTier: true,
+        voiceAiEnabled: true,
+      },
     });
 
     await this.logPlatformAction({
       actorClerkId,
       action: 'CHANGE_PLAN_TIER',
       targetOrgId: orgId,
-      before: { planTier: org.planTier },
-      after: { planTier: updated.planTier },
+      before: { planTier: org.planTier, voiceAiEnabled: org.voiceAiEnabled },
+      after: {
+        planTier: updated.planTier,
+        voiceAiEnabled: updated.voiceAiEnabled,
+      },
     });
 
     return updated;
