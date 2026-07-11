@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -60,6 +61,7 @@ export class PublicBoookingService {
       description: org.description,
       phone: org.phone,
       address: org.address,
+      isSuspended: org.isSuspended,
       aiBookingAvailable:
         org.voiceAiEnabled &&
         (org.planTier === 'PRO' || org.planTier === 'BUSINESS'),
@@ -236,6 +238,12 @@ export class PublicBoookingService {
 
     if (!org || org.isDeleted) {
       throw new NotFoundException('Business not found');
+    }
+
+    if (org.isSuspended) {
+      throw new ForbiddenException(
+        'This business is currently unavailable and not accepting bookings.',
+      );
     }
 
     const activeStaffIds = org.users.map((u) => u.id);

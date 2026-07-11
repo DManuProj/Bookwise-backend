@@ -439,6 +439,12 @@ export class VapiService {
       include: { users: { where: { status: 'ACTIVE' }, select: { id: true } } },
     });
     if (!org || org.isDeleted) return { error: 'Business not found' };
+    if (org.isSuspended) {
+      return {
+        error:
+          'This business is currently unavailable and not accepting bookings.',
+      };
+    }
     if (org.planTier === 'STARTER' || !org.voiceAiEnabled) {
       return {
         error:

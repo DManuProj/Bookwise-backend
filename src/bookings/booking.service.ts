@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -275,6 +276,13 @@ export class BookingService {
 
   //POST create booking
   async createBooking(user: AuthenticatedUser, data: CreateBookingDto) {
+    // Suspended orgs may not take new bookings.
+    if (user.org?.isSuspended) {
+      throw new ForbiddenException(
+        'This organisation is suspended and cannot take new bookings.',
+      );
+    }
+
     // Tier cap check
     const cap = TIER_LIMITS[user.org!.planTier].bookingsPerMonth;
 
