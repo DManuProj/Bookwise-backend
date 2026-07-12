@@ -23,6 +23,7 @@ import { SlugCheckingModule } from './slug/slug.module.js';
 import { OverviewModule } from './overview/overview.module.js';
 import { AuditModule } from './audit/audit.module.js';
 import { AdminModule } from './admin/admin.module.js';
+import { HealthModule } from './health/health.module.js';
 
 @Module({
   imports: [
@@ -50,6 +51,7 @@ import { AdminModule } from './admin/admin.module.js';
     OverviewModule,
     AuditModule,
     AdminModule,
+    HealthModule,
   ],
   controllers: [AppController],
   providers: [AppService],
