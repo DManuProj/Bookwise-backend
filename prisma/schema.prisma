@@ -38,6 +38,11 @@ enum PlanTier {
   BUSINESS
 }
 
+enum SuspendReason {
+  ADMIN
+  NON_PAYMENT
+}
+
 enum InviteStatus {
   PENDING
   ACCEPTED
@@ -89,6 +94,7 @@ model Organisation {
   isDeleted            Boolean   @default(false)
   isSuspended          Boolean   @default(false)
   suspendedAt          DateTime?
+  suspendedReason      SuspendReason?
   stripeCustomerId     String?   @unique
   stripeSubscriptionId String?
   deletedAt            DateTime?

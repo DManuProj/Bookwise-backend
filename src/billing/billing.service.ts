@@ -14,6 +14,7 @@ import {
   TIER_LIMITS,
   UNLIMITED,
 } from '../common/constants/tier-limits.constant.js';
+import { SuspendReason } from '../generated/prisma/enums.js';
 import { startOfMonth } from 'date-fns';
 
 @Injectable()
@@ -381,15 +382,36 @@ export class BillingService {
       return;
     }
 
+    // Auto-reactivate ONLY non-payment suspensions. A manual admin suspend
+    // (suspendedReason ADMIN) must never be cleared by a payment succeeding.
+    const org = await this.prisma.db.organisation.findUnique({
+      where: { id: orgId },
+      select: { isSuspended: true, suspendedReason: true },
+    });
+
+    const shouldReactivate =
+      org?.isSuspended === true &&
+      org.suspendedReason === SuspendReason.NON_PAYMENT;
+
     await this.prisma.db.organisation.update({
       where: { id: orgId },
       data: {
         planTier: planTier as any,
         stripeSubscriptionId: subscriptionId,
+        ...(shouldReactivate && {
+          isSuspended: false,
+          suspendedAt: null,
+          suspendedReason: null,
+        }),
       },
     });
 
     this.logger.log(`Plan activated: ${orgId} → ${planTier}`);
+    if (shouldReactivate) {
+      this.logger.log(
+        `Auto-reactivated non-payment suspension after payment: ${orgId}`,
+      );
+    }
   }
 
   // ── Subscription updated (plan change / cancellation toggle) ──────────────
@@ -453,6 +475,10 @@ export class BillingService {
       data: {
         planTier: 'STARTER',
         stripeSubscriptionId: null,
+        voiceAiEnabled: false, // STARTER cannot have voice AI
+        isSuspended: true,
+        suspendedAt: new Date(),
+        suspendedReason: SuspendReason.NON_PAYMENT,
       },
     });
 

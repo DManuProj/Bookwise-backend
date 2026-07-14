@@ -4,7 +4,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { PlanTier, BookingStatus } from '../generated/prisma/enums.js';
+import {
+  PlanTier,
+  BookingStatus,
+  SuspendReason,
+} from '../generated/prisma/enums.js';
 
 @Injectable()
 export class AdminService {
@@ -423,7 +427,12 @@ export class AdminService {
   async setSuspended(orgId: string, suspended: boolean, actorClerkId: string) {
     const org = await this.prisma.db.organisation.findUnique({
       where: { id: orgId },
-      select: { id: true, isSuspended: true, suspendedAt: true },
+      select: {
+        id: true,
+        isSuspended: true,
+        suspendedAt: true,
+        suspendedReason: true,
+      },
     });
     if (!org) throw new NotFoundException(`Organisation ${orgId} not found`);
 
@@ -432,16 +441,32 @@ export class AdminService {
       data: {
         isSuspended: suspended,
         suspendedAt: suspended ? new Date() : null,
+        suspendedReason: suspended ? SuspendReason.ADMIN : null,
       },
-      select: { id: true, name: true, slug: true, isSuspended: true, suspendedAt: true },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        isSuspended: true,
+        suspendedAt: true,
+        suspendedReason: true,
+      },
     });
 
     await this.logPlatformAction({
       actorClerkId,
       action: suspended ? 'SUSPEND_ORG' : 'REACTIVATE_ORG',
       targetOrgId: orgId,
-      before: { isSuspended: org.isSuspended, suspendedAt: org.suspendedAt },
-      after: { isSuspended: updated.isSuspended, suspendedAt: updated.suspendedAt },
+      before: {
+        isSuspended: org.isSuspended,
+        suspendedAt: org.suspendedAt,
+        suspendedReason: org.suspendedReason,
+      },
+      after: {
+        isSuspended: updated.isSuspended,
+        suspendedAt: updated.suspendedAt,
+        suspendedReason: updated.suspendedReason,
+      },
     });
 
     return updated;
