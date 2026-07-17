@@ -54,6 +54,19 @@ export class PublicBoookingService {
     if (!org || org.isDeleted)
       throw new NotFoundException('Business not found');
 
+    // Fold the monthly voice-minute cap into aiBookingAvailable.
+    // Only PRO can be over-cap (BUSINESS = unlimited, STARTER has no voice).
+    const cap = TIER_LIMITS[org.planTier].voiceMinutesPerMonth;
+    let overCap = false;
+    if (org.voiceAiEnabled && org.planTier === 'PRO') {
+      const agg = await this.prisma.db.voiceUsage.aggregate({
+        where: { orgId: org.id, createdAt: { gte: startOfMonth(new Date()) } },
+        _sum: { duration: true },
+      });
+      const minutesUsed = Math.ceil((agg._sum.duration || 0) / 60); // duration is SECONDS
+      overCap = minutesUsed >= cap;
+    }
+
     return {
       name: org.name,
       slug: org.slug,
@@ -64,7 +77,8 @@ export class PublicBoookingService {
       isSuspended: org.isSuspended,
       aiBookingAvailable:
         org.voiceAiEnabled &&
-        (org.planTier === 'PRO' || org.planTier === 'BUSINESS'),
+        (org.planTier === 'PRO' || org.planTier === 'BUSINESS') &&
+        !overCap,
       services: org.services,
       staff: org.users,
       workingHours: org.workingHours,
