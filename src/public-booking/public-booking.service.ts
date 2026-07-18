@@ -92,7 +92,7 @@ export class PublicBoookingService {
     date: string,
     staffId?: string,
   ) {
-    // ── Step 1: Get org + working hours
+    // Step 1: Get org + working hours
     const org = await this.prisma.db.organisation.findUnique({
       where: { slug },
       include: {
@@ -107,7 +107,7 @@ export class PublicBoookingService {
 
     const orgTz = org.timezone || 'UTC';
 
-    // ── Step 2: Get the service (need duration)
+    // Step 2: Get the service (need duration)
     const service = await this.prisma.db.service.findUnique({
       where: { id: serviceId },
     });
@@ -116,7 +116,7 @@ export class PublicBoookingService {
       throw new NotFoundException('Service not found');
     }
 
-    // ── Step 3: Find which day of the week
+    // Step 3: Find which day of the week
     const dayNames = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
     const [yr, mo, dy] = date.split('-').map(Number);
     const dayOfWeek = dayNames[new Date(yr, mo - 1, dy).getDay()];
@@ -129,7 +129,7 @@ export class PublicBoookingService {
       return [];
     }
 
-    // ── Step 4: Get existing bookings for that day
+    // Step 4: Get existing bookings for that day
     const dayStart = fromZonedTime(`${date}T00:00:00`, orgTz);
     const dayEnd = fromZonedTime(`${date}T23:59:59.999`, orgTz);
 
@@ -187,7 +187,7 @@ export class PublicBoookingService {
       allSlots.push(timeStr);
     }
 
-    // ── Step 6: Remove slots that conflict with bookings ─
+    // Step 6: Remove slots that conflict with bookings
     const availableSlots = allSlots.filter((slot) => {
       const [slotH, slotM] = slot.split(':').map(Number);
       const slotStart = slotH * 60 + slotM;
@@ -222,7 +222,7 @@ export class PublicBoookingService {
       return capacityUsed < effectivePool.length;
     });
 
-    // ── Step 7: Remove past slots if booking is today ───
+    // Step 7: Remove past slots if booking is today
     const nowInOrgTz = toZonedTime(new Date(), orgTz);
     const todayInOrgTz = `${nowInOrgTz.getFullYear()}-${String(nowInOrgTz.getMonth() + 1).padStart(2, '0')}-${String(nowInOrgTz.getDate()).padStart(2, '0')}`;
 

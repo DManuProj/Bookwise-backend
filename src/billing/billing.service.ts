@@ -14,7 +14,13 @@ import {
   TIER_LIMITS,
   UNLIMITED,
 } from '../common/constants/tier-limits.constant.js';
-import { startOfMonth } from 'date-fns';
+import {
+  eachDayOfInterval,
+  endOfMonth,
+  format,
+  startOfMonth,
+} from 'date-fns';
+import { fromZonedTime, toZonedTime } from 'date-fns-tz';
 
 @Injectable()
 export class BillingService {
@@ -41,7 +47,7 @@ export class BillingService {
     };
   }
 
-  // ── GET /api/billing/usage ──────────────────────────
+  // GET /api/billing/usage
   async getUsage(user: AuthenticatedUser) {
     const orgId = user.orgId!;
     const planTier = user.org!.planTier;
@@ -120,7 +126,59 @@ export class BillingService {
     };
   }
 
-  // ── GET /api/billing/status ─────────────────────────
+  // GET /api/billing/usage/voice-history
+  // Per-day voice minutes for the current month, bucketed in ORG-LOCAL time
+  // (matching public-booking) so chart days line up with the rest of the app.
+  // Zero-filled for days with no usage. Returns [{ date, minutes }] ascending.
+  async getVoiceHistory(user: AuthenticatedUser) {
+    const orgId = user.orgId!;
+    const orgTz = user.org?.timezone || 'UTC';
+
+    // "Now" as seen in the org's timezone, so we pick the right local month.
+    const nowLocal = toZonedTime(new Date(), orgTz);
+    const localMonthStart = startOfMonth(nowLocal);
+    const localMonthEnd = endOfMonth(nowLocal);
+
+    // Local wall-clock day boundaries → UTC instants for the DB range query.
+    const monthStartUtc = fromZonedTime(
+      `${format(localMonthStart, 'yyyy-MM-dd')}T00:00:00`,
+      orgTz,
+    );
+    const monthEndUtc = fromZonedTime(
+      `${format(localMonthEnd, 'yyyy-MM-dd')}T23:59:59.999`,
+      orgTz,
+    );
+
+    const rows = await this.prisma.db.voiceUsage.findMany({
+      where: {
+        orgId,
+        createdAt: { gte: monthStartUtc, lte: monthEndUtc },
+      },
+      select: { createdAt: true, duration: true },
+    });
+
+    // Pre-seed every local day of the month → 0 seconds (zero-fill).
+    const buckets = new Map<string, number>();
+    for (const day of eachDayOfInterval({
+      start: localMonthStart,
+      end: localMonthEnd,
+    })) {
+      buckets.set(format(day, 'yyyy-MM-dd'), 0);
+    }
+
+    // Sum durations (SECONDS) into the org-local day each row falls on.
+    for (const row of rows) {
+      const localDay = format(toZonedTime(row.createdAt, orgTz), 'yyyy-MM-dd');
+      buckets.set(localDay, (buckets.get(localDay) || 0) + row.duration);
+    }
+
+    // seconds → minutes per day (ceil once per day, matching getUsage).
+    return [...buckets.entries()]
+      .map(([date, seconds]) => ({ date, minutes: Math.ceil(seconds / 60) }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  // GET /api/billing/status
   // Returns current plan and subscription info
   async getStatus(user: AuthenticatedUser) {
     const org = await this.prisma.db.organisation.findUnique({
@@ -159,7 +217,7 @@ export class BillingService {
     };
   }
 
-  // ── POST /api/billing/subscribe ─────────────────────
+  // POST /api/billing/subscribe
   // Creates or updates a subscription
   // Returns clientSecret for frontend to confirm payment
   async subscribe(user: AuthenticatedUser, data: SubscribeDto) {
@@ -274,7 +332,7 @@ export class BillingService {
     };
   }
 
-  // ── POST /api/billing/portal ────────────────────────
+  // POST /api/billing/portal
   // Creates a Stripe Customer Portal session
   // User can manage payment methods, view invoices, cancel
   async createPortalSession(user: AuthenticatedUser) {
@@ -301,7 +359,7 @@ export class BillingService {
     return { url: session.url };
   }
 
-  // ── POST /api/billing/webhook ───────────────────────
+  // POST /api/billing/webhook
   // Stripe sends events here when payment status changes
   async handleWebhook(rawBody: string, signature: string) {
     const webhookSecret = this.config.get<string>('STRIPE_WEBHOOK_SECRET');
@@ -356,7 +414,7 @@ export class BillingService {
     }
   }
 
-  // ── Payment succeeded — activate plan
+  // Payment succeeded — activate plan
   private async handlePaymentSucceeded(invoice: Stripe.Invoice) {
     const subscriptionRef =
       invoice.parent?.type === 'subscription_details'
@@ -392,7 +450,7 @@ export class BillingService {
     this.logger.log(`Plan activated: ${orgId} → ${planTier}`);
   }
 
-  // ── Subscription updated (plan change / cancellation toggle) ──────────────
+  // Subscription updated (plan change / cancellation toggle)
   // Only sync the subscriptionId here. planTier is updated in handlePaymentSucceeded
   // so we never grant access before payment is confirmed.
   private async handleSubscriptionUpdated(subscription: Stripe.Subscription) {
@@ -407,7 +465,7 @@ export class BillingService {
     this.logger.log(`Subscription record synced: ${orgId}`);
   }
 
-  // ── Payment failed — notify org owner ──────────────
+  // Payment failed — notify org owner
   private async handlePaymentFailed(invoice: Stripe.Invoice) {
     const customerId =
       typeof invoice.customer === 'string'
@@ -443,7 +501,7 @@ export class BillingService {
     this.logger.warn(`Payment failed for org: ${org.name} (${customerId})`);
   }
 
-  // ── Subscription cancelled ──────────────────────────
+  // Subscription cancelled
   private async handleSubscriptionCancelled(subscription: Stripe.Subscription) {
     const orgId = subscription.metadata.orgId;
     if (!orgId) return;

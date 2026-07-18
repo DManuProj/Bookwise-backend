@@ -79,7 +79,7 @@ export class NotificationService {
     });
   }
 
-  // ── Helper: notify users by specific roles ────────────
+  // Helper: notify users by specific roles
   async notifyByRoles(
     orgId: string,
     roles: Role[],
@@ -110,7 +110,7 @@ export class NotificationService {
     }
   }
 
-  // ── Helper: shortcut for notifying owner + admin ──────
+  // Helper: shortcut for notifying owner + admin
   async notifyOrgAdmins(
     orgId: string,
     title: string,

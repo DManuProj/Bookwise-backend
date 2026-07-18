@@ -491,7 +491,7 @@ export class VapiService {
     // const endAt = new Date(startAt);
     // endAt.setMinutes(endAt.getMinutes() + service.durationMins);
 
-    // // ── Validate booking falls within business working hours
+    // // Validate booking falls within business working hours
     // const workingHours = await this.prisma.db.workingHour.findMany({
     //   where: { orgId: org.id },
     // });
@@ -505,7 +505,7 @@ export class VapiService {
     const startAt = fromZonedTime(`${date}T${time}:00`, orgTz); // "2026-06-01T14:00:00" @ Colombo → 08:30Z
     const endAt = new Date(startAt.getTime() + service.durationMins * 60000);
 
-    // ── Validate against working hours
+    // Validate against working hours
     const workingHours = await this.prisma.db.workingHour.findMany({
       where: { orgId: org.id, userId: null },
     });
@@ -866,6 +866,9 @@ export class VapiService {
       this.logger.log(
         `Voice usage tracked: org=${org.id} callId=${callId} duration=${durationSeconds}s`,
       );
+      // Fire the monthly cap check only after a fresh insert — never on the
+      // P2002 (duplicate webhook) path below, so we don't re-notify.
+      await this.checkAndNotifyVoiceLimit(org.id);
     } catch (err) {
       if ((err as any).code === 'P2002') {
         this.logger.log(
@@ -896,6 +899,62 @@ export class VapiService {
           `No booking for call ${callId} — minutes tracked, no transcript link`,
         );
       }
+    }
+  }
+
+  // Notify org owner + platform admin once per month when a metered (PRO) org
+  // crosses its monthly voice-minute cap. Best-effort: never throws.
+  private async checkAndNotifyVoiceLimit(orgId: string): Promise<void> {
+    try {
+      const org = await this.prisma.db.organisation.findUnique({
+        where: { id: orgId },
+        select: {
+          id: true,
+          name: true,
+          planTier: true,
+          voiceLimitNotifiedAt: true,
+          users: {
+            where: { role: 'OWNER', status: 'ACTIVE' },
+            take: 1,
+            select: { email: true },
+          },
+        },
+      });
+      if (!org) return;
+
+      const cap = TIER_LIMITS[org.planTier].voiceMinutesPerMonth;
+      // Only meter finite, positive caps (PRO). BUSINESS = UNLIMITED; STARTER = 0/no voice.
+      if (cap === UNLIMITED || cap <= 0) return;
+
+      const monthStart = startOfMonth(new Date());
+      // already notified this calendar month → don't re-send
+      if (org.voiceLimitNotifiedAt && org.voiceLimitNotifiedAt >= monthStart) return;
+
+      const agg = await this.prisma.db.voiceUsage.aggregate({
+        where: { orgId: org.id, createdAt: { gte: monthStart } },
+        _sum: { duration: true },
+      });
+      const minutesUsed = Math.ceil((agg._sum.duration || 0) / 60); // duration is SECONDS
+      if (minutesUsed < cap) return;
+
+      // stamp FIRST so we never double-send even if an email throws
+      await this.prisma.db.organisation.update({
+        where: { id: org.id },
+        data: { voiceLimitNotifiedAt: new Date() },
+      });
+
+      const ownerEmail = org.users[0]?.email;
+      if (ownerEmail) {
+        await this.emailService.sendVoiceLimitReachedEmail(ownerEmail, org.name, cap);
+      }
+      await this.emailService.sendVoiceLimitReachedAdminEmail(
+        org.name,
+        minutesUsed,
+        cap,
+      );
+    } catch (err) {
+      // never let notification failure break usage tracking
+      this.logger.error(`voice-limit notify failed: ${(err as Error).message}`);
     }
   }
 }

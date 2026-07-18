@@ -19,10 +19,10 @@ export class ClerkAuthGurad implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    // ── Step 1: Get the request object ────────────────
+    // Step 1: Get the request object
     const request = context.switchToHttp().getRequest();
 
-    // ── Step 2: Extract the token from the header ─────
+    // Step 2: Extract the token from the header
     const authHeader = request.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -32,7 +32,7 @@ export class ClerkAuthGurad implements CanActivate {
     // Remove "Bearer " prefix to get just the token
     const token = authHeader.replace('Bearer ', '');
 
-    // ── Step 3: Verify the token with Clerk ───────────
+    // Step 3: Verify the token with Clerk
 
     try {
       const payload = await verifyToken(token, {
@@ -44,7 +44,7 @@ export class ClerkAuthGurad implements CanActivate {
       // It identifies WHO the token belongs to
       const clerkId = payload.sub;
 
-      // ── Step 4: Find the user in OUR database ────────
+      // Step 4: Find the user in OUR database
       const user = await this.prisma.db.user.findUnique({
         where: { clerkId },
         include: { org: true }, // also fetch their organisation
@@ -55,7 +55,7 @@ export class ClerkAuthGurad implements CanActivate {
         throw new UnauthorizedException('User not found');
       }
 
-      // ── Step 5: Attach user to the request ───────────
+      // Step 5: Attach user to the request
       // Now any controller can access request.user
       request.user = user;
 

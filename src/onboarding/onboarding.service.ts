@@ -17,18 +17,18 @@ export class OnboardingService {
   async completeOnboarding(user: AuthenticatedUser, data: OnboardingDto) {
     this.logger.log(`Processing onboarding for: ${user.email}`);
 
-    // ── Guard: already onboarded?
+    // Guard: already onboarded?
     if (user.onboardingComplete)
       throw new BadRequestException('Onboarding already completed');
 
-    // ── Guard: slug already taken?
+    // Guard: slug already taken?
     const existingOrg = await this.prisma.db.organisation.findUnique({
       where: { slug: data.slug },
     });
 
     if (existingOrg) throw new BadRequestException('This slug is alredy taken');
 
-    // ── Transaction: create everything
+    // Transaction: create everything
     const result = await this.prisma.db.$transaction(async (tx) => {
       // Step 1: Create organisation
       const org = await tx.organisation.create({

@@ -13,7 +13,7 @@ export class WebhooksService {
   ) {}
 
   async handleClerkWebhook(rawBody: string, headers: Record<string, string>) {
-    // ── Step 1: Verify the webhook signature ──────────
+    // Step 1: Verify the webhook signature
     // Make sure this request is genuinely from Clerk
     const secret = this.config.get<string>('CLERK_WEBHOOK_SECRET');
 
@@ -34,7 +34,7 @@ export class WebhooksService {
       throw new Error('Invalid webhook signature');
     }
 
-    // ── Step 2: Handle the event ──────────────────────
+    // Step 2: Handle the event
     this.logger.log(`Clerk event received: ${event.type}`);
 
     switch (event.type) {
@@ -51,7 +51,7 @@ export class WebhooksService {
     }
   }
 
-  // ── Step 3: Create user in our database ─────────────
+  // Step 3: Create user in our database
   private async handleUserCreated(data: any) {
     const { id, email_addresses, first_name, last_name, image_url } = data;
 

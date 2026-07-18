@@ -76,30 +76,31 @@ enum LeaveStatus {
 
 // organization model 
 model Organisation {
-  id                   String    @id @default(cuid())
+  id                   String         @id @default(cuid())
   name                 String
-  slug                 String    @unique
+  slug                 String         @unique
   logo                 String?
   description          String?
   address              String?
   businessType         String
-  timezone             String    @default("UTC")
+  timezone             String         @default("UTC")
   phone                String?
-  bufferMins           Int       @default(0)
-  minLeadTimeMins      Int       @default(60)
-  maxPerSlot           Int       @default(1)
+  bufferMins           Int            @default(0)
+  minLeadTimeMins      Int            @default(60)
+  maxPerSlot           Int            @default(1)
   cancelPolicy         String?
-  voiceAiEnabled       Boolean   @default(false)
-  planTier             PlanTier  @default(STARTER)
-  isDeleted            Boolean   @default(false)
-  isSuspended          Boolean   @default(false)
+  voiceAiEnabled       Boolean        @default(false)
+  planTier             PlanTier       @default(STARTER)
+  isDeleted            Boolean        @default(false)
+  isSuspended          Boolean        @default(false)
   suspendedAt          DateTime?
   suspendedReason      SuspendReason?
-  stripeCustomerId     String?   @unique
+  stripeCustomerId     String?        @unique
   stripeSubscriptionId String?
+  voiceLimitNotifiedAt DateTime?
   deletedAt            DateTime?
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
 
   users         User[]
   services      Service[]

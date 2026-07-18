@@ -311,7 +311,7 @@ export class BookingService {
       throw new BadRequestException('Cannot book a time in the past.');
     }
 
-    // Staff exists + belongs to org ──
+    // Staff exists + belongs to org
     const staff = await this.prisma.db.user.findUnique({
       where: { id: data.staffId },
     });
@@ -325,7 +325,7 @@ export class BookingService {
       data.startAt.getTime() + service.durationMins * 60000,
     );
 
-    //  Working hours check ──
+    // Working hours check
     const orgTz = user.org?.timezone || 'UTC';
     const startInOrgTz = toZonedTime(data.startAt, orgTz);
     const endInOrgTz = toZonedTime(endAt, orgTz);
@@ -357,7 +357,7 @@ export class BookingService {
     const buffer = service.buffer ?? user.org?.bufferMins ?? 0;
     const bufferedEnd = new Date(endAt.getTime() + buffer * 60000);
 
-    // Transaction: customer resolution + conflict check + booking creation ──
+    // Transaction: customer resolution + conflict check + booking creation
     const booking = await this.prisma.db
       .$transaction(async (tx) => {
         const dayStartUtc = fromZonedTime(`${dateStr}T00:00:00`, orgTz);
@@ -538,7 +538,7 @@ export class BookingService {
     id: string,
     data: UpdateBookingDataDto,
   ) {
-    // ── 1. Fetch existing booking ──
+    // 1. Fetch existing booking
     const existingBooking = await this.prisma.db.booking.findUnique({
       where: { id },
       include: { service: true, customer: true, user: true },
@@ -554,7 +554,7 @@ export class BookingService {
 
     const oldStartAt = existingBooking.startAt;
 
-    // ── 2. Resolve effective service ──
+    // 2. Resolve effective service
     // If serviceId changed, fetch and verify the new one. Else reuse existing.
     let service = existingBooking.service;
     if (data.serviceId && data.serviceId !== existingBooking.serviceId) {
@@ -571,7 +571,7 @@ export class BookingService {
       service = newService;
     }
 
-    //  Resolve effective staff ──
+    // Resolve effective staff
     let staffId = existingBooking.userId!;
     if (data.staffId && data.staffId !== existingBooking.userId) {
       const newStaff = await this.prisma.db.user.findUnique({
@@ -587,7 +587,7 @@ export class BookingService {
     const startAt = data.startAt ?? existingBooking.startAt;
     const endAt = new Date(startAt.getTime() + service.durationMins * 60000);
 
-    // ── 5. Past booking check ──
+    // 5. Past booking check
     if (startAt < new Date()) {
       throw new BadRequestException(
         'Cannot move booking to a time in the past.',

@@ -36,6 +36,13 @@ export class BillingController {
     return await this.billingService.getUsage(user);
   }
 
+  // GET /api/billing/usage/voice-history
+  @Get('usage/voice-history')
+  @UseGuards(ClerkAuthGurad, OrgGuard)
+  async getVoiceHistory(@CurrentUser() user: AuthenticatedUser) {
+    return await this.billingService.getVoiceHistory(user);
+  }
+
   // POST /api/billing/subscribe
   @Post('subscribe')
   @UseGuards(ClerkAuthGurad, OrgGuard)

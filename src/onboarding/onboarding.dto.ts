@@ -15,7 +15,7 @@ import {
 } from 'class-validator';
 import { DayOfWeek, Role } from '../generated/prisma/enums.js';
 
-// ── Working hour for one day
+// Working hour for one day
 export class WorkingHourDto {
   @IsEnum(DayOfWeek)
   day!: DayOfWeek;
@@ -30,7 +30,7 @@ export class WorkingHourDto {
   closeTime!: string;
 }
 
-// ── One staff member
+// One staff member
 export class StaffDto {
   @IsString()
   @IsNotEmpty()
@@ -47,7 +47,7 @@ export class StaffDto {
   role!: Role;
 }
 
-// ── One service
+// One service
 export class ServiceDto {
   @IsString()
   @IsNotEmpty()
@@ -71,7 +71,7 @@ export class ServiceDto {
   buffer!: number;
 }
 
-// ── Main onboarding body
+// Main onboarding body
 export class OnboardingDto {
   @IsString()
   @IsNotEmpty()

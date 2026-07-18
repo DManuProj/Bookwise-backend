@@ -14,7 +14,7 @@ export class EmailService {
       this.config.get<string>('FRONTEND_URL') || 'http://localhost:3000';
   }
 
-  // ── Shared email wrapper ───────────────────────────
+  // Shared email wrapper
   private wrapInTemplate(content: string): string {
     return `
       <!DOCTYPE html>
@@ -47,7 +47,7 @@ export class EmailService {
     `;
   }
 
-  // ── Staff invitation email ─────────────────────────
+  // Staff invitation email
   async sendInvitationEmail(
     to: string,
     orgName: string,
@@ -100,7 +100,7 @@ export class EmailService {
     }
   }
 
-  // ── Booking confirmation email ─────────────────────
+  // Booking confirmation email
   async sendBookingConfirmationEmail(
     to: string,
     customerName: string,
@@ -163,7 +163,7 @@ export class EmailService {
     }
   }
 
-  // ── Booking rescheduled email ──────────────────────
+  // Booking rescheduled email
   async sendBookingRescheduledEmail(
     to: string,
     customerName: string,
@@ -231,7 +231,7 @@ export class EmailService {
     }
   }
 
-  // ── Booking status update email ────────────────────
+  // Booking status update email
   async sendBookingStatusEmail(
     to: string,
     customerName: string,
@@ -329,7 +329,7 @@ export class EmailService {
     }
   }
 
-  // ── Payment failed email ──────────────────────────
+  // Payment failed email
   async sendPaymentFailedEmail(
     to: string,
     orgName: string,
@@ -376,7 +376,7 @@ export class EmailService {
     }
   }
 
-  // ── Leave status email ─────────────────────────────
+  // Leave status email
   async sendLeaveStatusEmail(
     to: string,
     staffName: string,
@@ -440,6 +440,105 @@ export class EmailService {
       this.logger.log(`Leave status email sent to: ${to} (${status})`);
     } catch (error) {
       this.logger.error(`Failed to send leave email to: ${to}`, error);
+    }
+  }
+
+  // Voice-limit reached (owner-facing)
+  async sendVoiceLimitReachedEmail(
+    to: string,
+    orgName: string,
+    capMinutes: number,
+  ) {
+    const settingsUrl = `${this.appUrl}/dashboard/settings`;
+
+    const content = `
+      <div style="background-color:#fffbeb;border-radius:10px;padding:14px 20px;text-align:center;margin:0 0 24px;border:1px solid #fde68a;">
+        <p style="color:#d97706;font-size:15px;font-weight:600;margin:0;">🎙️ Voice-AI minutes used up</p>
+      </div>
+
+      <p style="color:#475569;font-size:15px;line-height:26px;margin:0 0 12px;">
+        <strong style="color:#0f172a;">${orgName}</strong> has used all
+        <strong style="color:#0f172a;">${capMinutes} minutes</strong> of its monthly
+        AI voice booking allowance.
+      </p>
+
+      <p style="color:#475569;font-size:15px;line-height:26px;margin:0 0 12px;">
+        AI voice booking is paused for the rest of this month and will reset at the
+        start of next month. Your booking page and manual bookings continue to work
+        as normal — only the AI voice assistant is affected.
+      </p>
+
+      <p style="color:#475569;font-size:15px;line-height:26px;margin:0 0 12px;">
+        Need more voice minutes now? Upgrade your plan to lift the limit.
+      </p>
+
+      <div style="text-align:center;margin:32px 0;">
+        <a href="${settingsUrl}" style="display:inline-block;background-color:#22c55e;border-radius:10px;color:#ffffff;font-size:15px;font-weight:600;padding:14px 36px;text-decoration:none;">
+          Manage Plan
+        </a>
+      </div>
+    `;
+
+    try {
+      await this.resend.emails.send({
+        from: 'Bookwise <onboarding@resend.dev>',
+        to,
+        subject: `You've reached your monthly voice-AI minutes for ${orgName}`,
+        html: this.wrapInTemplate(content),
+      });
+
+      this.logger.log(`Voice limit email sent to: ${to}`);
+    } catch (error) {
+      this.logger.error(`Failed to send voice limit email to: ${to}`, error);
+    }
+  }
+
+  // Voice-limit reached (platform-admin-facing)
+  async sendVoiceLimitReachedAdminEmail(
+    orgName: string,
+    minutesUsed: number,
+    capMinutes: number,
+  ) {
+    const adminEmail = this.config.get<string>('PLATFORM_ADMIN_EMAIL');
+    if (!adminEmail) {
+      this.logger.warn(
+        'PLATFORM_ADMIN_EMAIL not set — skipping admin voice-limit email',
+      );
+      return;
+    }
+
+    const content = `
+      <div style="background-color:#f1f5f9;border-radius:10px;padding:14px 20px;text-align:center;margin:0 0 24px;border:1px solid #cbd5e1;">
+        <p style="color:#334155;font-size:15px;font-weight:600;margin:0;">🎙️ Voice cap reached</p>
+      </div>
+
+      <p style="color:#475569;font-size:15px;line-height:26px;margin:0 0 12px;">
+        <strong style="color:#0f172a;">${orgName}</strong> reached its monthly voice-AI
+        minute cap.
+      </p>
+
+      <div style="background-color:#f8fafc;border-radius:10px;padding:14px 20px;border:1px solid #e2e8f0;margin:0 0 12px;">
+        <p style="color:#475569;font-size:14px;font-weight:500;margin:0;text-align:center;">
+          Usage this month: <strong style="color:#0f172a;">${minutesUsed}</strong> /
+          <strong style="color:#0f172a;">${capMinutes}</strong> minutes
+        </p>
+      </div>
+    `;
+
+    try {
+      await this.resend.emails.send({
+        from: 'Bookwise <onboarding@resend.dev>',
+        to: adminEmail,
+        subject: `[Admin] ${orgName} reached its voice-AI minute cap`,
+        html: this.wrapInTemplate(content),
+      });
+
+      this.logger.log(`Admin voice limit email sent for org: ${orgName}`);
+    } catch (error) {
+      this.logger.error(
+        `Failed to send admin voice limit email for org: ${orgName}`,
+        error,
+      );
     }
   }
 }
