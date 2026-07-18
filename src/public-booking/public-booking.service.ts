@@ -37,7 +37,7 @@ export class PublicBoookingService {
           orderBy: { name: 'asc' },
         },
         users: {
-          where: { status: 'ACTIVE' },
+          where: { status: 'ACTIVE', staffActive: true },
           select: {
             id: true,
             firstName: true,
@@ -97,7 +97,10 @@ export class PublicBoookingService {
       where: { slug },
       include: {
         workingHours: { where: { userId: null } },
-        users: { where: { status: 'ACTIVE' }, select: { id: true } },
+        users: {
+          where: { status: 'ACTIVE', staffActive: true },
+          select: { id: true },
+        },
       },
     });
 
@@ -247,7 +250,12 @@ export class PublicBoookingService {
     // Find the org by slug
     const org = await this.prisma.db.organisation.findUnique({
       where: { slug: data.slug },
-      include: { users: { where: { status: 'ACTIVE' }, select: { id: true } } },
+      include: {
+        users: {
+          where: { status: 'ACTIVE', staffActive: true },
+          select: { id: true },
+        },
+      },
     });
 
     if (!org || org.isDeleted) {

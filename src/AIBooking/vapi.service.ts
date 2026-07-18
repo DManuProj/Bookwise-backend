@@ -169,7 +169,10 @@ export class VapiService {
       where: { slug },
       include: {
         workingHours: { where: { userId: null } },
-        users: { where: { status: 'ACTIVE' }, select: { id: true } },
+        users: {
+          where: { status: 'ACTIVE', staffActive: true },
+          select: { id: true },
+        },
       },
     });
     if (!org || org.isDeleted) return { error: 'Business not found' };
@@ -436,7 +439,12 @@ export class VapiService {
 
     const org = await this.prisma.db.organisation.findUnique({
       where: { slug },
-      include: { users: { where: { status: 'ACTIVE' }, select: { id: true } } },
+      include: {
+        users: {
+          where: { status: 'ACTIVE', staffActive: true },
+          select: { id: true },
+        },
+      },
     });
     if (!org || org.isDeleted) return { error: 'Business not found' };
     if (org.isSuspended) {
@@ -747,7 +755,7 @@ export class VapiService {
       where: { slug },
       include: {
         users: {
-          where: { status: 'ACTIVE' },
+          where: { status: 'ACTIVE', staffActive: true },
           select: { id: true, firstName: true, lastName: true },
         },
       },
@@ -914,9 +922,8 @@ export class VapiService {
           planTier: true,
           voiceLimitNotifiedAt: true,
           users: {
-            where: { role: 'OWNER', status: 'ACTIVE' },
-            take: 1,
-            select: { email: true },
+            where: { role: { in: ['OWNER', 'ADMIN'] }, status: 'ACTIVE' },
+            select: { email: true, role: true },
           },
         },
       });
@@ -943,15 +950,14 @@ export class VapiService {
         data: { voiceLimitNotifiedAt: new Date() },
       });
 
-      const ownerEmail = org.users[0]?.email;
-      if (ownerEmail) {
-        await this.emailService.sendVoiceLimitReachedEmail(ownerEmail, org.name, cap);
+      // OWNER gets the Manage Plan button; ADMINs get a button-less variant
+      for (const u of org.users) {
+        if (u.role === 'OWNER') {
+          await this.emailService.sendVoiceLimitReachedEmail(u.email, org.name, cap);
+        } else {
+          await this.emailService.sendVoiceLimitReachedStaffEmail(u.email, org.name, cap);
+        }
       }
-      await this.emailService.sendVoiceLimitReachedAdminEmail(
-        org.name,
-        minutesUsed,
-        cap,
-      );
     } catch (err) {
       // never let notification failure break usage tracking
       this.logger.error(`voice-limit notify failed: ${(err as Error).message}`);

@@ -168,7 +168,7 @@ export class BookingService {
       where: { id: staffId },
     });
 
-    if (!staff || staff.orgId !== user.orgId) {
+    if (!staff || staff.orgId !== user.orgId || !staff.staffActive) {
       throw new NotFoundException('Staff member not found');
     }
 
@@ -316,7 +316,7 @@ export class BookingService {
       where: { id: data.staffId },
     });
 
-    if (!staff || staff.orgId !== user.orgId) {
+    if (!staff || staff.orgId !== user.orgId || !staff.staffActive) {
       throw new NotFoundException('Staff member not found');
     }
 
@@ -577,7 +577,7 @@ export class BookingService {
       const newStaff = await this.prisma.db.user.findUnique({
         where: { id: data.staffId },
       });
-      if (!newStaff || newStaff.orgId !== user.orgId) {
+      if (!newStaff || newStaff.orgId !== user.orgId || !newStaff.staffActive) {
         throw new NotFoundException('Staff member not found');
       }
       staffId = newStaff.id;

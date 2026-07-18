@@ -14,7 +14,7 @@ import { OrgGuard } from '../common/guards/org.guard.js';
 import { StaffService } from './staff.service.js';
 import { CurrentUser } from '../auth/auth.decorator.js';
 import type { AuthenticatedUser } from '../common/types/index.js';
-import { ChangeRoleDto } from './staff.dto.js';
+import { ChangeRoleDto, UnfreezeStaffDto } from './staff.dto.js';
 import { StaffDto } from '../onboarding/onboarding.dto.js';
 
 @Controller('staff')
@@ -50,6 +50,27 @@ export class StaffController {
   ) {
     this.logger.log(` Changing role for staff ${id} by: ${user.email}`);
     return await this.staffService.changeStaffRole(user, id, data);
+  }
+
+  //PUT /api/staff/:id/freeze
+  @Put(':id/freeze')
+  async freezeStaff(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ) {
+    this.logger.log(` Freezing staff ${id} by: ${user.email}`);
+    return await this.staffService.freezeStaff(user, id);
+  }
+
+  //PUT /api/staff/:id/unfreeze
+  @Put(':id/unfreeze')
+  async unfreezeStaff(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() data: UnfreezeStaffDto,
+  ) {
+    this.logger.log(` Unfreezing staff ${id} by: ${user.email}`);
+    return await this.staffService.unfreezeStaff(user, id, data);
   }
 
   //DELETE /api/staff/:id

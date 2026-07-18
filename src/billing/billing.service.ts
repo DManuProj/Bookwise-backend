@@ -7,6 +7,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { EmailService } from '../email/email.service.js';
+import { StaffService } from '../staff/staff.service.js';
 import { AuthenticatedUser } from '../common/types/index.js';
 import { SubscribeDto } from './billing.dto.js';
 import Stripe from 'stripe';
@@ -32,6 +33,7 @@ export class BillingService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly emailService: EmailService,
+    private readonly staffService: StaffService,
   ) {
     // Initialize Stripe with secret key
     this.stripe = new Stripe(this.config.get<string>('STRIPE_SECRET_KEY')!);
@@ -63,7 +65,7 @@ export class BillingService {
       voiceUsageSum,
     ] = await Promise.all([
       this.prisma.db.user.count({
-        where: { orgId, status: 'ACTIVE' },
+        where: { orgId, status: 'ACTIVE', staffActive: true },
       }),
 
       this.prisma.db.staffInvitation.count({
@@ -448,6 +450,9 @@ export class BillingService {
     });
 
     this.logger.log(`Plan activated: ${orgId} → ${planTier}`);
+
+    // Downgrades may leave more active staff than the new tier allows
+    await this.staffService.autoFreezeToStaffCap(orgId);
   }
 
   // Subscription updated (plan change / cancellation toggle)
@@ -516,5 +521,8 @@ export class BillingService {
     });
 
     this.logger.log(`Subscription cancelled: ${orgId} → STARTER (free tier)`);
+
+    // Dropping to STARTER may leave more active staff than the cap allows
+    await this.staffService.autoFreezeToStaffCap(orgId);
   }
 }

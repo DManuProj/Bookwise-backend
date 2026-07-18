@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsEnum, IsNotEmpty, IsString } from 'class-validator';
+import { IsEnum, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 import { Role } from '../generated/prisma/enums.js';
 
 // export class InviteStaffDto {
@@ -10,4 +10,10 @@ import { Role } from '../generated/prisma/enums.js';
 export class ChangeRoleDto {
   @IsEnum(Role)
   role!: Role;
+}
+
+export class UnfreezeStaffDto {
+  @IsOptional()
+  @IsString()
+  freezeUserId?: string;
 }

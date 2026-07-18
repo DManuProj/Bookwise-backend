@@ -35,7 +35,7 @@ export const TIER_LIMITS: Record<PlanTier, TierLimits> = {
   PRO: {
     staff: 10,
     services: UNLIMITED,
-    bookingsPerMonth: UNLIMITED,
+    bookingsPerMonth: 100,
     voiceMinutesPerMonth: 100,
   },
   BUSINESS: {

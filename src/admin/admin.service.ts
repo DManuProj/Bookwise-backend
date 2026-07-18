@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { StaffService } from '../staff/staff.service.js';
 import {
   PlanTier,
   BookingStatus,
@@ -12,7 +13,10 @@ import {
 
 @Injectable()
 export class AdminService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly staffService: StaffService,
+  ) {}
 
   async getStats() {
     const [
@@ -420,6 +424,9 @@ export class AdminService {
         voiceAiEnabled: updated.voiceAiEnabled,
       },
     });
+
+    // Downgrades may leave more active staff than the new tier allows
+    await this.staffService.autoFreezeToStaffCap(orgId);
 
     return updated;
   }

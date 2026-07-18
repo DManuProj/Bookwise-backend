@@ -124,6 +124,7 @@ model User {
   photoUrl           String?
   role               Role       @default(MEMBER)
   status             UserStatus @default(INACTIVE)
+  staffActive        Boolean    @default(true)
   profileComplete    Boolean    @default(false)
   onboardingComplete Boolean    @default(false)
   createdAt          DateTime   @default(now())

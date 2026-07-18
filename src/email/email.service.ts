@@ -493,50 +493,42 @@ export class EmailService {
     }
   }
 
-  // Voice-limit reached (platform-admin-facing)
-  async sendVoiceLimitReachedAdminEmail(
+  // Voice-limit reached (org-admin-facing, button-less — admins can't manage billing)
+  async sendVoiceLimitReachedStaffEmail(
+    to: string,
     orgName: string,
-    minutesUsed: number,
     capMinutes: number,
   ) {
-    const adminEmail = this.config.get<string>('PLATFORM_ADMIN_EMAIL');
-    if (!adminEmail) {
-      this.logger.warn(
-        'PLATFORM_ADMIN_EMAIL not set — skipping admin voice-limit email',
-      );
-      return;
-    }
-
     const content = `
-      <div style="background-color:#f1f5f9;border-radius:10px;padding:14px 20px;text-align:center;margin:0 0 24px;border:1px solid #cbd5e1;">
-        <p style="color:#334155;font-size:15px;font-weight:600;margin:0;">🎙️ Voice cap reached</p>
+      <div style="background-color:#fffbeb;border-radius:10px;padding:14px 20px;text-align:center;margin:0 0 24px;border:1px solid #fde68a;">
+        <p style="color:#d97706;font-size:15px;font-weight:600;margin:0;">🎙️ Voice-AI minutes used up</p>
       </div>
 
       <p style="color:#475569;font-size:15px;line-height:26px;margin:0 0 12px;">
-        <strong style="color:#0f172a;">${orgName}</strong> reached its monthly voice-AI
-        minute cap.
+        <strong style="color:#0f172a;">${orgName}</strong> has used all
+        <strong style="color:#0f172a;">${capMinutes} minutes</strong> of its monthly
+        AI voice booking allowance.
       </p>
 
-      <div style="background-color:#f8fafc;border-radius:10px;padding:14px 20px;border:1px solid #e2e8f0;margin:0 0 12px;">
-        <p style="color:#475569;font-size:14px;font-weight:500;margin:0;text-align:center;">
-          Usage this month: <strong style="color:#0f172a;">${minutesUsed}</strong> /
-          <strong style="color:#0f172a;">${capMinutes}</strong> minutes
-        </p>
-      </div>
+      <p style="color:#475569;font-size:15px;line-height:26px;margin:0 0 12px;">
+        AI voice booking is paused for the rest of this month and will reset at the
+        start of next month. Your booking page and manual bookings continue to work
+        as normal — only the AI voice assistant is affected.
+      </p>
     `;
 
     try {
       await this.resend.emails.send({
         from: 'Bookwise <onboarding@resend.dev>',
-        to: adminEmail,
-        subject: `[Admin] ${orgName} reached its voice-AI minute cap`,
+        to,
+        subject: `Voice-AI minutes used up for ${orgName}`,
         html: this.wrapInTemplate(content),
       });
 
-      this.logger.log(`Admin voice limit email sent for org: ${orgName}`);
+      this.logger.log(`Voice limit staff email sent to: ${to}`);
     } catch (error) {
       this.logger.error(
-        `Failed to send admin voice limit email for org: ${orgName}`,
+        `Failed to send voice limit staff email to: ${to}`,
         error,
       );
     }
