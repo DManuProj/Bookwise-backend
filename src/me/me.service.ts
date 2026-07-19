@@ -32,6 +32,7 @@ export class MeService {
       photoUrl: user.photoUrl,
       role: user.role,
       status: user.status,
+      staffActive: user.staffActive,
       profileComplete: user.profileComplete,
       onboardingComplete: user.onboardingComplete,
       orgId: user.orgId,
