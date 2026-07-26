@@ -332,3 +332,9 @@ model PlatformAuditLog {
   @@index([targetOrgId, createdAt])
   @@index([actorClerkId, createdAt])
 }
+
+generator erd {
+  provider = "prisma-erd-generator"
+  output   = "../erd.md"
+  theme    = "neutral"
+}

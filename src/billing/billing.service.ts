@@ -19,6 +19,7 @@ import {
   eachDayOfInterval,
   endOfMonth,
   format,
+  startOfDay,
   startOfMonth,
 } from 'date-fns';
 import { fromZonedTime, toZonedTime } from 'date-fns-tz';
@@ -159,11 +160,15 @@ export class BillingService {
       select: { createdAt: true, duration: true },
     });
 
-    // Pre-seed every local day of the month → 0 seconds (zero-fill).
+    // Pre-seed each local day up to today → 0 seconds (zero-fill).
+    // Stop at today so the chart has no flat zero tail of future days.
+    const today = startOfDay(nowLocal);
+    const rangeEnd = localMonthEnd < today ? localMonthEnd : today;
+
     const buckets = new Map<string, number>();
     for (const day of eachDayOfInterval({
       start: localMonthStart,
-      end: localMonthEnd,
+      end: rangeEnd,
     })) {
       buckets.set(format(day, 'yyyy-MM-dd'), 0);
     }
