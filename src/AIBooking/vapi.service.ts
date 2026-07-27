@@ -108,7 +108,7 @@ export class VapiService {
       where: { slug },
       include: {
         services: {
-          where: { isActive: true },
+          where: { isActive: true, isDeleted: false },
           select: {
             id: true,
             name: true,
@@ -120,6 +120,12 @@ export class VapiService {
       },
     });
     if (!org || org.isDeleted) return { error: 'Business not found' };
+    if (org.isSuspended) {
+      return {
+        error:
+          'This business is currently unavailable and not accepting bookings.',
+      };
+    }
     if (org.planTier === 'STARTER' || !org.voiceAiEnabled) {
       return {
         error:
@@ -164,6 +170,12 @@ export class VapiService {
           'Service not found or not selected yet. Ask the customer which service they want to book BEFORE checking time slots.',
       };
     }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return {
+        error:
+          'Date must be in YYYY-MM-DD format. Re-resolve the day the customer asked for and try again.',
+      };
+    }
 
     const org = await this.prisma.db.organisation.findUnique({
       where: { slug },
@@ -176,8 +188,29 @@ export class VapiService {
       },
     });
     if (!org || org.isDeleted) return { error: 'Business not found' };
+    if (org.isSuspended) {
+      return {
+        error:
+          'This business is currently unavailable and not accepting bookings.',
+      };
+    }
+    if (org.planTier === 'STARTER' || !org.voiceAiEnabled) {
+      return {
+        error:
+          'Voice booking is not available for this business. Please book manually instead.',
+      };
+    }
 
     const activeStaffIds = org.users.map((u) => u.id);
+
+    if (staffId && !activeStaffIds.includes(staffId)) {
+      return {
+        slots: [],
+        reason: 'STAFF_UNAVAILABLE',
+        message:
+          'That staff member is not available for bookings. Offer the customer another staff member, or book without a preference.',
+      };
+    }
 
     const service = await this.resolveService(serviceId, org.id);
     if (!service) return { error: 'Service not found' };
@@ -202,7 +235,7 @@ export class VapiService {
     // dayEnd.setHours(23, 59, 59, 999);
     // Local day → UTC bounds, so we fetch the right day's bookings.
     const dayStart = fromZonedTime(`${date}T00:00:00`, orgTz);
-    const dayEnd = fromZonedTime(`${date}T23:59:59`, orgTz);
+    const dayEnd = fromZonedTime(`${date}T23:59:59.999`, orgTz);
 
     const onLeave = await this.prisma.db.staffLeave.findMany({
       where: {
@@ -214,21 +247,23 @@ export class VapiService {
       },
       select: { userId: true },
     });
-    const onLeaveIds = new Set(onLeave.map(l => l.userId));
-    const effectivePool = activeStaffIds.filter(id => !onLeaveIds.has(id));
+    const onLeaveIds = new Set(onLeave.map((l) => l.userId));
+    const effectivePool = activeStaffIds.filter((id) => !onLeaveIds.has(id));
 
     if (staffId && onLeaveIds.has(staffId)) {
       return {
         slots: [],
         reason: 'STAFF_ON_LEAVE',
-        message: 'That staff member is on leave that day. Offer the customer another staff member or another day.',
+        message:
+          'That staff member is on leave that day. Offer the customer another staff member or another day.',
       };
     }
     if (!staffId && effectivePool.length === 0) {
       return {
         slots: [],
         reason: 'NO_STAFF_AVAILABLE',
-        message: 'No staff are available on this day. Offer the customer another day.',
+        message:
+          'No staff are available on this day. Offer the customer another day.',
       };
     }
 
@@ -436,6 +471,18 @@ export class VapiService {
           'Customer email looks invalid. Please confirm the email with the customer.',
       };
     }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return {
+        error:
+          'Date must be in YYYY-MM-DD format. Re-resolve the day the customer asked for and try again.',
+      };
+    }
+    if (!/^\d{2}:\d{2}$/.test(time)) {
+      return {
+        error:
+          'Time must be in 24-hour HH:MM format taken from the slots list (e.g. "14:00"). Do not pass spoken times like "2 PM". Re-check the available slots and pass the exact slot value.',
+      };
+    }
 
     const org = await this.prisma.db.organisation.findUnique({
       where: { slug },
@@ -566,8 +613,10 @@ export class VapiService {
           },
           select: { userId: true },
         });
-        const onLeaveIds = new Set(onLeave.map(l => l.userId));
-        const effectivePool = activeStaffIds.filter(id => !onLeaveIds.has(id));
+        const onLeaveIds = new Set(onLeave.map((l) => l.userId));
+        const effectivePool = activeStaffIds.filter(
+          (id) => !onLeaveIds.has(id),
+        );
 
         const overlappingBookings = await tx.booking.findMany({
           where: {
@@ -582,7 +631,8 @@ export class VapiService {
         let finalStaffId: string | null = null;
 
         if (requestedStaffId) {
-          if (onLeaveIds.has(requestedStaffId)) throw new Error('STAFF_ON_LEAVE');
+          if (onLeaveIds.has(requestedStaffId))
+            throw new Error('STAFF_ON_LEAVE');
           // Specific staff requested — verify they're still free
           const isBusy = overlappingBookings.some(
             (b) => b.userId === requestedStaffId,
@@ -591,6 +641,8 @@ export class VapiService {
           finalStaffId = requestedStaffId;
         } else {
           // No preference — check overall capacity
+          if (effectivePool.length === 0) throw new Error('ALL_STAFF_ON_LEAVE');
+
           const busyStaffIds = new Set<string>();
           let unassignedOverlapCount = 0;
           for (const b of overlappingBookings) {
@@ -601,7 +653,8 @@ export class VapiService {
             }
           }
           const capacityUsed = busyStaffIds.size + unassignedOverlapCount;
-          if (capacityUsed >= effectivePool.length) throw new Error('SLOT_TAKEN');
+          if (capacityUsed >= effectivePool.length)
+            throw new Error('SLOT_TAKEN');
 
           // Single-staff org → auto-assign. Multi-staff → leave null for admin.
           finalStaffId = effectivePool.length === 1 ? effectivePool[0] : null;
@@ -649,7 +702,14 @@ export class VapiService {
       const msg = (err as Error).message;
       if (msg === 'STAFF_ON_LEAVE') {
         return {
-          error: 'The requested staff member is on leave that day. Please offer the customer another staff member or another day.',
+          error:
+            'The requested staff member is on leave that day. Please offer the customer another staff member or another day.',
+        };
+      }
+      if (msg === 'ALL_STAFF_ON_LEAVE') {
+        return {
+          error:
+            'No staff are working that day. Please offer the customer another day.',
         };
       }
       if (String(msg ?? '').includes('23P01')) {
@@ -750,6 +810,18 @@ export class VapiService {
           'Cannot check staff without a confirmed service. Ask the customer which service first.',
       };
     }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return {
+        error:
+          'Date must be in YYYY-MM-DD format. Re-resolve the day the customer asked for and try again.',
+      };
+    }
+    if (!/^\d{2}:\d{2}$/.test(time)) {
+      return {
+        error:
+          'Time must be in 24-hour HH:MM format taken from the slots list (e.g. "14:00"). Do not pass spoken times like "2 PM". Re-check the available slots and pass the exact slot value.',
+      };
+    }
 
     const org = await this.prisma.db.organisation.findUnique({
       where: { slug },
@@ -761,6 +833,12 @@ export class VapiService {
       },
     });
     if (!org || org.isDeleted) return { error: 'Business not found' };
+    if (org.isSuspended) {
+      return {
+        error:
+          'This business is currently unavailable and not accepting bookings.',
+      };
+    }
     if (org.planTier === 'STARTER' || !org.voiceAiEnabled) {
       return { error: 'Voice booking is not available for this business.' };
     }
@@ -792,15 +870,15 @@ export class VapiService {
     const onLeave = await this.prisma.db.staffLeave.findMany({
       where: {
         orgId: org.id,
-        userId: { in: org.users.map(u => u.id) },
+        userId: { in: org.users.map((u) => u.id) },
         status: { in: ['PENDING', 'APPROVED'] },
         startDate: { lt: dayEndUtc },
         endDate: { gt: dayStartUtc },
       },
       select: { userId: true },
     });
-    const onLeaveIds = new Set(onLeave.map(l => l.userId));
-    const effectiveUsers = org.users.filter(u => !onLeaveIds.has(u.id));
+    const onLeaveIds = new Set(onLeave.map((l) => l.userId));
+    const effectiveUsers = org.users.filter((u) => !onLeaveIds.has(u.id));
 
     const conflictingBookings = await this.prisma.db.booking.findMany({
       where: {
@@ -935,7 +1013,8 @@ export class VapiService {
 
       const monthStart = startOfMonth(new Date());
       // already notified this calendar month → don't re-send
-      if (org.voiceLimitNotifiedAt && org.voiceLimitNotifiedAt >= monthStart) return;
+      if (org.voiceLimitNotifiedAt && org.voiceLimitNotifiedAt >= monthStart)
+        return;
 
       const agg = await this.prisma.db.voiceUsage.aggregate({
         where: { orgId: org.id, createdAt: { gte: monthStart } },
@@ -953,9 +1032,17 @@ export class VapiService {
       // OWNER gets the Manage Plan button; ADMINs get a button-less variant
       for (const u of org.users) {
         if (u.role === 'OWNER') {
-          await this.emailService.sendVoiceLimitReachedEmail(u.email, org.name, cap);
+          await this.emailService.sendVoiceLimitReachedEmail(
+            u.email,
+            org.name,
+            cap,
+          );
         } else {
-          await this.emailService.sendVoiceLimitReachedStaffEmail(u.email, org.name, cap);
+          await this.emailService.sendVoiceLimitReachedStaffEmail(
+            u.email,
+            org.name,
+            cap,
+          );
         }
       }
     } catch (err) {

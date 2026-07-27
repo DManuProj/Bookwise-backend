@@ -552,6 +552,14 @@ export class BookingService {
       throw new BadRequestException('Only pending bookings can be edited');
     }
 
+    // Without this, staffId stays undefined below: the update becomes a no-op
+    // for userId and the overlap check runs unfiltered across the whole org.
+    if (!existingBooking.userId && !data.staffId) {
+      throw new BadRequestException(
+        'This booking has no staff member assigned. Select one to continue.',
+      );
+    }
+
     const oldStartAt = existingBooking.startAt;
 
     // 2. Resolve effective service
@@ -776,6 +784,17 @@ export class BookingService {
       if (booking.status === 'COMPLETED') {
         throw new BadRequestException('Cannot cancel a completed booking');
       }
+    }
+
+    // Guard the target status — transitions here are unrestricted, so an
+    // unassigned booking could otherwise be confirmed from any state.
+    if (
+      (data.status === 'CONFIRMED' || data.status === 'COMPLETED') &&
+      !booking.userId
+    ) {
+      throw new BadRequestException(
+        'Assign a staff member to this booking before confirming or completing it.',
+      );
     }
 
     const updatedBooking = await this.prisma.db.booking.update({
