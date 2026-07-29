@@ -81,31 +81,62 @@ export class WebhooksService {
       return;
     }
 
-    // firstName/lastName are non-nullable columns — fall back to empty string
-    // on create, and to undefined (no change) on update.
-    const user = await this.prisma.db.user.upsert({
-      where: { clerkId: id },
-      create: {
-        clerkId: id,
-        email,
-        firstName: first_name || '',
-        lastName: last_name || '',
-        photoUrl: image_url || null,
-        role: 'OWNER',
-        status: 'INACTIVE',
-        profileComplete: false,
-        onboardingComplete: false,
-      },
-      update: {
-        email,
-        firstName: first_name || undefined,
-        lastName: last_name || undefined,
-        photoUrl: image_url || undefined,
-      },
+    // Match on clerkId OR email: when a Clerk account is deleted and recreated
+    // the same person arrives with a NEW clerkId, and creating on clerkId alone
+    // then violates the unique email constraint.
+    const existing = await this.prisma.db.user.findFirst({
+      where: { OR: [{ clerkId: id }, { email }] },
     });
 
-    this.logger.log(
-      `User upserted from ${eventType}: ${user.email} (clerkId: ${user.clerkId})`,
-    );
+    try {
+      if (!existing) {
+        // firstName/lastName are non-nullable columns — fall back to ''
+        const created = await this.prisma.db.user.create({
+          data: {
+            clerkId: id,
+            email,
+            firstName: first_name || '',
+            lastName: last_name || '',
+            photoUrl: image_url || null,
+            role: 'OWNER',
+            status: 'INACTIVE',
+            profileComplete: false,
+            onboardingComplete: false,
+          },
+        });
+
+        this.logger.log(
+          `User created from ${eventType}: ${created.email} (clerkId: ${created.clerkId})`,
+        );
+        return;
+      }
+
+      // Re-point clerkId if Clerk reissued the account, and sync profile fields
+      // (undefined = leave unchanged). Email is deliberately not synced — it
+      // could collide with a different row's unique email.
+      const synced = await this.prisma.db.user.update({
+        where: { id: existing.id },
+        data: {
+          clerkId: id,
+          firstName: first_name || undefined,
+          lastName: last_name || undefined,
+          photoUrl: image_url || undefined,
+        },
+      });
+
+      this.logger.log(
+        `User synced from ${eventType}: ${synced.email} (clerkId: ${synced.clerkId})`,
+      );
+    } catch (err) {
+      // A duplicate isn't transient — retrying can't fix it, so ack and stop
+      // Clerk from redelivering forever.
+      if ((err as any).code === 'P2002') {
+        this.logger.warn(
+          `Duplicate user for ${email} (clerkId: ${id}) on ${eventType} — skipping`,
+        );
+        return;
+      }
+      throw err;
+    }
   }
 }

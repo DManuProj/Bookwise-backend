@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { OnboardingDto } from './onboarding.dto.js';
-import { isBootstrapUser, RequestUser } from '../common/types/index.js';
+import { RequestUser } from '../common/types/index.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { EmailService } from '../email/email.service.js';
 import { TIER_LIMITS } from '../common/constants/tier-limits.constant.js';
@@ -17,9 +17,28 @@ export class OnboardingService {
   async completeOnboarding(user: RequestUser, data: OnboardingDto) {
     this.logger.log(`Processing onboarding for: ${user.email}`);
 
-    // Guard: already onboarded? (a bootstrapping user has no row, so never is)
-    if (!isBootstrapUser(user) && user.onboardingComplete)
+    // Resolve any row that already belongs to this person: by clerkId, or by
+    // email when the Clerk account was recreated under a new id. Matching on
+    // clerkId alone hits the unique email constraint when we go to create.
+    const existing = await this.prisma.db.user.findFirst({
+      where: { OR: [{ clerkId: user.clerkId }, { email: user.email }] },
+    });
+
+    // Guard: already onboarded?
+    if (existing?.onboardingComplete) {
+      // Re-point the row at the current Clerk account so a returning owner
+      // lands back in their organisation instead of onboarding a second time.
+      if (existing.clerkId !== user.clerkId) {
+        await this.prisma.db.user.update({
+          where: { id: existing.id },
+          data: { clerkId: user.clerkId },
+        });
+        this.logger.warn(
+          `Re-linked ${existing.email} to new clerkId: ${user.clerkId}`,
+        );
+      }
       throw new BadRequestException('Onboarding already completed');
+    }
 
     // Guard: slug already taken?
     const existingOrg = await this.prisma.db.organisation.findUnique({
@@ -43,30 +62,34 @@ export class OnboardingService {
 
       this.logger.log(`Organisation created: ${org.name} (${org.slug})`);
 
-      // Step 2: Ensure the user row exists, link it to the org, mark complete.
-      // Upsert self-heals the case where the Clerk webhook never landed — the
-      // owner can still onboard instead of being stuck with no DB row.
-      const updatedUser = await tx.user.upsert({
-        where: { clerkId: user.clerkId },
-        create: {
-          clerkId: user.clerkId,
-          email: user.email,
-          firstName: user.firstName || '',
-          lastName: user.lastName || '',
-          photoUrl: user.photoUrl,
-          role: 'OWNER',
-          orgId: org.id,
-          status: 'ACTIVE',
-          onboardingComplete: true,
-          profileComplete: true,
-        },
-        update: {
-          orgId: org.id,
-          status: 'ACTIVE',
-          onboardingComplete: true,
-          profileComplete: true,
-        },
-      });
+      // Step 2: Link the user to the organisation + mark complete.
+      // Creates the row when the Clerk webhook never landed, and adopts an
+      // existing row (re-pointing clerkId) when the Clerk account was recreated.
+      const updatedUser = existing
+        ? await tx.user.update({
+            where: { id: existing.id },
+            data: {
+              clerkId: user.clerkId,
+              orgId: org.id,
+              status: 'ACTIVE',
+              onboardingComplete: true,
+              profileComplete: true,
+            },
+          })
+        : await tx.user.create({
+            data: {
+              clerkId: user.clerkId,
+              email: user.email,
+              firstName: user.firstName || '',
+              lastName: user.lastName || '',
+              photoUrl: user.photoUrl,
+              role: 'OWNER',
+              orgId: org.id,
+              status: 'ACTIVE',
+              onboardingComplete: true,
+              profileComplete: true,
+            },
+          });
 
       this.logger.log(`User ${updatedUser.email} linked to org: ${org.slug}`);
 
