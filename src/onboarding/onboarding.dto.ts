@@ -97,10 +97,6 @@ export class OnboardingDto {
   @IsNotEmpty()
   country!: string;
 
-  @IsString()
-  @IsNotEmpty()
-  currency!: string;
-
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => WorkingHourDto)
