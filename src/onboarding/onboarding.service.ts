@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { OnboardingDto } from './onboarding.dto.js';
-import { AuthenticatedUser } from '../common/types/index.js';
+import { isBootstrapUser, RequestUser } from '../common/types/index.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { EmailService } from '../email/email.service.js';
 import { TIER_LIMITS } from '../common/constants/tier-limits.constant.js';
@@ -14,11 +14,11 @@ export class OnboardingService {
     private readonly emailService: EmailService,
   ) {}
 
-  async completeOnboarding(user: AuthenticatedUser, data: OnboardingDto) {
+  async completeOnboarding(user: RequestUser, data: OnboardingDto) {
     this.logger.log(`Processing onboarding for: ${user.email}`);
 
-    // Guard: already onboarded?
-    if (user.onboardingComplete)
+    // Guard: already onboarded? (a bootstrapping user has no row, so never is)
+    if (!isBootstrapUser(user) && user.onboardingComplete)
       throw new BadRequestException('Onboarding already completed');
 
     // Guard: slug already taken?
@@ -43,10 +43,24 @@ export class OnboardingService {
 
       this.logger.log(`Organisation created: ${org.name} (${org.slug})`);
 
-      // Step 2: Link user to organisation + mark as complete
-      const updatedUser = await tx.user.update({
-        where: { id: user.id },
-        data: {
+      // Step 2: Ensure the user row exists, link it to the org, mark complete.
+      // Upsert self-heals the case where the Clerk webhook never landed — the
+      // owner can still onboard instead of being stuck with no DB row.
+      const updatedUser = await tx.user.upsert({
+        where: { clerkId: user.clerkId },
+        create: {
+          clerkId: user.clerkId,
+          email: user.email,
+          firstName: user.firstName || '',
+          lastName: user.lastName || '',
+          photoUrl: user.photoUrl,
+          role: 'OWNER',
+          orgId: org.id,
+          status: 'ACTIVE',
+          onboardingComplete: true,
+          profileComplete: true,
+        },
+        update: {
           orgId: org.id,
           status: 'ACTIVE',
           onboardingComplete: true,

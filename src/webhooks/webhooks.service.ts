@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Webhook } from 'svix';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -18,8 +18,11 @@ export class WebhooksService {
     const secret = this.config.get<string>('CLERK_WEBHOOK_SECRET');
 
     if (!secret) {
-      this.logger.error('CLERK_WEBHOOK_SECRET is not set in .env');
-      throw new Error('Webhook secret not configured');
+      this.logger.error(
+        'CLERK_WEBHOOK_SECRET is not set — cannot verify Clerk webhooks. ' +
+          'New sign-ups will not be provisioned until this env var is configured.',
+      );
+      throw new BadRequestException('Webhook secret not configured');
     }
 
     let event: any;
@@ -31,7 +34,7 @@ export class WebhooksService {
       event = wh.verify(rawBody, headers) as any;
     } catch (error) {
       this.logger.error('Webhook signature verification failed', error);
-      throw new Error('Invalid webhook signature');
+      throw new BadRequestException('Invalid webhook signature');
     }
 
     // Step 2: Handle the event
@@ -39,11 +42,8 @@ export class WebhooksService {
 
     switch (event.type) {
       case 'user.created':
-        await this.handleUserCreated(event.data);
-        break;
-
       case 'user.updated':
-        await this.handleUserUpdated(event.data);
+        await this.upsertUserFromClerk(event.data, event.type);
         break;
 
       default:
@@ -51,8 +51,11 @@ export class WebhooksService {
     }
   }
 
-  // Step 3: Create user in our database
-  private async handleUserCreated(data: any) {
+  // Step 3: Create/sync the user in our database.
+  // Upsert by clerkId so Clerk's retries (common after a cold start) are safe —
+  // a duplicate delivery updates instead of blowing up with a unique violation.
+  // Never creates an Organisation; that happens during onboarding.
+  private async upsertUserFromClerk(data: any, eventType: string) {
     const { id, email_addresses, first_name, last_name, image_url } = data;
 
     // Clerk stores emails in an array
@@ -78,59 +81,31 @@ export class WebhooksService {
       return;
     }
 
-    // Check if user already exists (prevent duplicates)
-    const existingUser = await this.prisma.db.user.findUnique({
+    // firstName/lastName are non-nullable columns — fall back to empty string
+    // on create, and to undefined (no change) on update.
+    const user = await this.prisma.db.user.upsert({
       where: { clerkId: id },
-    });
-
-    if (existingUser) {
-      this.logger.log(`User already exists: ${email}`);
-      return;
-    }
-
-    const user = await this.prisma.db.user.create({
-      data: {
+      create: {
         clerkId: id,
         email,
-        firstName: first_name || null,
-        lastName: last_name || null,
+        firstName: first_name || '',
+        lastName: last_name || '',
         photoUrl: image_url || null,
         role: 'OWNER',
         status: 'INACTIVE',
         profileComplete: false,
         onboardingComplete: false,
       },
-    });
-
-    this.logger.log(`User created: ${user.email} (clerkId: ${user.clerkId})`);
-  }
-
-  private async handleUserUpdated(data: any) {
-    const { id, first_name, last_name, image_url } = data;
-
-    // Find the DB user by clerkId
-    const existingUser = await this.prisma.db.user.findUnique({
-      where: { clerkId: id },
-    });
-
-    if (!existingUser) {
-      this.logger.log(
-        `User.updated webhook for unknown clerkId: ${id}, skipping`,
-      );
-      return;
-    }
-
-    await this.prisma.db.user.update({
-      where: { clerkId: id },
-      data: {
-        firstName: first_name || existingUser.firstName,
-        lastName: last_name || existingUser.lastName,
-        photoUrl: image_url || existingUser.photoUrl,
+      update: {
+        email,
+        firstName: first_name || undefined,
+        lastName: last_name || undefined,
+        photoUrl: image_url || undefined,
       },
     });
 
     this.logger.log(
-      `User profile synced: ${existingUser.email} (clerkId: ${id})`,
+      `User upserted from ${eventType}: ${user.email} (clerkId: ${user.clerkId})`,
     );
   }
 }

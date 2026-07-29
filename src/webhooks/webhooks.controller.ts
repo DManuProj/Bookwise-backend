@@ -28,19 +28,16 @@ export class WebhooksController {
   ) {
     this.logger.log('Received Clerk webhook');
 
-    try {
-      // Pass raw body + headers to service
-      // Controller doesn't verify or create users
-      // It just receives and delegates
-      await this.webhooksService.handleClerkWebhook(rawBody.toString(), {
-        'svix-id': headers['svix-id'],
-        'svix-timestamp': headers['svix-timestamp'],
-        'svix-signature': headers['svix-signature'],
-      });
-      return { success: true };
-    } catch (error) {
-      this.logger.error('Webhook processing failed', error);
-      return { success: false, error: 'Webhook processing failed' };
-    }
+    // Errors deliberately propagate: a bad/missing secret surfaces as 400 and a
+    // transient failure as 500 so Clerk retries. Swallowing them into a 200 hid
+    // misconfiguration and meant new sign-ups were silently never provisioned.
+    // Retries are safe — the handler upserts by clerkId.
+    await this.webhooksService.handleClerkWebhook(rawBody.toString(), {
+      'svix-id': headers['svix-id'],
+      'svix-timestamp': headers['svix-timestamp'],
+      'svix-signature': headers['svix-signature'],
+    });
+
+    return { success: true };
   }
 }

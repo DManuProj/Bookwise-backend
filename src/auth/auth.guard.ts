@@ -8,6 +8,8 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { verifyToken } from '@clerk/backend';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { ClerkService } from './clerk.service.js';
+import type { BootstrapUser } from '../common/types/index.js';
 
 @Injectable()
 export class ClerkAuthGurad implements CanActivate {
@@ -16,6 +18,7 @@ export class ClerkAuthGurad implements CanActivate {
   constructor(
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
+    private readonly clerkService: ClerkService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -32,8 +35,8 @@ export class ClerkAuthGurad implements CanActivate {
     // Remove "Bearer " prefix to get just the token
     const token = authHeader.replace('Bearer ', '');
 
-    // Step 3: Verify the token with Clerk
-
+    // Step 3: Verify the token with Clerk — unchanged, still mandatory.
+    // An invalid/expired/missing token 401s exactly as before.
     try {
       const payload = await verifyToken(token, {
         secretKey: this.config.get<string>('CLERK_SECRET_KEY'),
@@ -50,16 +53,24 @@ export class ClerkAuthGurad implements CanActivate {
         include: { org: true }, // also fetch their organisation
       });
 
-      if (!user) {
-        this.logger.warn(`No user found for clerkId: ${clerkId}`);
-        throw new UnauthorizedException('User not found');
-      }
-
       // Step 5: Attach user to the request
       // Now any controller can access request.user
-      request.user = user;
+      if (user) {
+        request.user = user;
+        return true; // allow the request through
+      }
 
-      return true; // allow the request through
+      // Token is valid, only the DB row is missing (webhook delayed or lost).
+      // Proceed in bootstrap mode so onboarding can provision the user instead
+      // of dead-locking on 401. OrgGuard still blocks every org-scoped route
+      // because orgId is null.
+      this.logger.warn(
+        `No DB user for clerkId: ${clerkId} — proceeding in bootstrap mode`,
+      );
+
+      request.user = await this.buildBootstrapUser(clerkId, payload);
+
+      return true;
     } catch (error) {
       if (error instanceof UnauthorizedException) {
         throw error;
@@ -67,5 +78,47 @@ export class ClerkAuthGurad implements CanActivate {
       this.logger.error('Token verification failed', error);
       throw new UnauthorizedException('Invalid token');
     }
+  }
+
+  // Build the bootstrap context from JWT claims when they carry identity,
+  // otherwise from the Clerk API — default session tokens only carry `sub`.
+  private async buildBootstrapUser(
+    clerkId: string,
+    payload: any,
+  ): Promise<BootstrapUser> {
+    const claimEmail =
+      payload.email ?? payload.email_address ?? payload.primary_email ?? null;
+
+    if (claimEmail) {
+      return {
+        isBootstrapping: true,
+        clerkId,
+        email: claimEmail,
+        firstName: payload.first_name ?? payload.firstName ?? null,
+        lastName: payload.last_name ?? payload.lastName ?? null,
+        photoUrl: payload.image_url ?? payload.picture ?? null,
+        orgId: null,
+        org: null,
+      };
+    }
+
+    const clerkUser = await this.clerkService.getUser(clerkId);
+    const email = clerkUser.emailAddresses[0]?.emailAddress;
+
+    if (!email) {
+      this.logger.warn(`Clerk user ${clerkId} has no email address`);
+      throw new UnauthorizedException('Clerk account has no email address');
+    }
+
+    return {
+      isBootstrapping: true,
+      clerkId,
+      email,
+      firstName: clerkUser.firstName ?? null,
+      lastName: clerkUser.lastName ?? null,
+      photoUrl: clerkUser.imageUrl ?? null,
+      orgId: null,
+      org: null,
+    };
   }
 }

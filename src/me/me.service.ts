@@ -1,5 +1,10 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { AuthenticatedUser } from '../common/types/index.js';
+import {
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import { isBootstrapUser, RequestUser } from '../common/types/index.js';
 import { UpdateMeDto } from './me.dto.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
@@ -12,7 +17,27 @@ export class MeService {
   //GET - fetch me details
 
   // GET — return current user profile
-  async getMe(user: AuthenticatedUser) {
+  async getMe(user: RequestUser) {
+    // Valid session but no DB row yet — report "needs onboarding" so the
+    // frontend routes to the wizard instead of reading a 401 as signed-out.
+    if (isBootstrapUser(user)) {
+      return {
+        id: null,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        phone: null,
+        photoUrl: user.photoUrl,
+        role: 'OWNER',
+        status: 'ACTIVE',
+        staffActive: false,
+        profileComplete: false,
+        onboardingComplete: false,
+        orgId: null,
+        org: null,
+      };
+    }
+
     let org: object | null = null;
     if (user.org) {
       const {
@@ -41,7 +66,14 @@ export class MeService {
   }
 
   //PUT upadte me info
-  async updateMe(user: AuthenticatedUser, data: UpdateMeDto) {
+  async updateMe(user: RequestUser, data: UpdateMeDto) {
+    // No DB row to update yet — onboarding must create it first.
+    if (isBootstrapUser(user)) {
+      throw new ForbiddenException(
+        'Complete onboarding before updating your profile',
+      );
+    }
+
     const updated = await this.prisma.db.user.update({
       where: { id: user.id },
       data: {

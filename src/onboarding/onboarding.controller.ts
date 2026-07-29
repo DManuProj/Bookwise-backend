@@ -10,7 +10,7 @@ import { ClerkAuthGurad } from '../auth/auth.guard.js';
 import { OnboardingService } from './onboarding.service.js';
 import { CurrentUser } from '../auth/auth.decorator.js';
 import { OnboardingDto } from './onboarding.dto.js';
-import type { AuthenticatedUser } from '../common/types/index.js';
+import type { RequestUser } from '../common/types/index.js';
 
 @Controller('onboarding')
 @UseGuards(ClerkAuthGurad)
@@ -23,7 +23,7 @@ export class OnboardingController {
   @Post()
   @HttpCode(200)
   async handleOnboarding(
-    @CurrentUser() user: AuthenticatedUser, // the logged-in user (from auth guard)
+    @CurrentUser() user: RequestUser, // may still be bootstrapping (no DB row)
     @Body() data: OnboardingDto, // the onboarding data from frontend
   ) {
     this.logger.log(`Onboarding started for: ${user.email}`);

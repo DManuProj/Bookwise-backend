@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Logger, Put, UseGuards } from '@nestjs/common';
 import { ClerkAuthGurad } from '../auth/auth.guard.js';
 import { CurrentUser } from '../auth/auth.decorator.js';
-import type { AuthenticatedUser } from '../common/types/index.js';
+import type { RequestUser } from '../common/types/index.js';
 import { MeService } from './me.service.js';
 import { UpdateMeDto } from './me.dto.js';
 
@@ -13,14 +13,14 @@ export class MeController {
   constructor(private readonly meService: MeService) {}
 
   @Get()
-  async getMe(@CurrentUser() user: AuthenticatedUser) {
+  async getMe(@CurrentUser() user: RequestUser) {
     this.logger.log(`Fetching profile for: ${user.email}`);
     return await this.meService.getMe(user);
   }
 
   @Put()
   async updateMe(
-    @CurrentUser() user: AuthenticatedUser,
+    @CurrentUser() user: RequestUser,
     @Body() data: UpdateMeDto,
   ) {
     this.logger.log(`Updating profile for: ${user.email}`);
