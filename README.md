@@ -349,4 +349,4 @@ Deployed on **Render** (free tier) at `https://bookwise-backend-hs58.onrender.co
 
 ## License
 
-UNLICENSED — private project. Maintained by [DManuProj](https://github.com/DManuProj).
+UNLICENSED — private project. Maintained by [dulana-wanigathunga](https://github.com/dulana-wanigathunga).
